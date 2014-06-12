@@ -3,6 +3,7 @@ import sys
 from cmd import Cmd
 from traceback import print_exc
 from simplecli.baseenv import BaseEnv
+from argparse import ArgumentError
 
 class BaseMenu(Cmd):
     # This must define for subclasses of BaseMenu
@@ -128,6 +129,21 @@ class BaseMenu(Cmd):
         self.stderr.write(str(buf).rstrip("\n") + "\n")
         self.stderr.flush()
 
+    def do_sample_cmd(self, args):
+        """
+        Sample command for test purposes
+
+        Usage: sample_cmd x (optional: y)
+        param x: arg to be printed to stdout
+        param y: (optional) arg to be printed to stderr
+        """
+        if not args:
+            raise ArgumentError(None,'No Arguments provided to sample_cmd')
+        args = str(args).split()
+        self.oprint('This is printed to stdout:' + str(args.pop(0)))
+        if args:
+            self.eprint('This is printed to stderr:' + str(args.pop(0)))
+
     def do_show_cli_env(self, args):
         """show current cli environment variables"""
         buf = ""
@@ -144,6 +160,16 @@ class BaseMenu(Cmd):
             self.eprint("No home menu defined. Currently at home Menu?")
         else:
             self._load_menu(self.homemenu, path_from_home=[])
+
+    def onecmd(self, line):
+        try:
+            return Cmd.onecmd(self, line)
+        except Exception as FE:
+            if self.env.debug:
+                print_exc(file=self.stderr)
+            self.eprint('Error while executing line: "{0}", err:{1}\n'
+                            .format(line, str(FE)))
+
 
     def do_back(self, args):
         """Go Back to last menu"""
@@ -227,7 +253,7 @@ class BaseMenu(Cmd):
         line = line.strip()
         if not line:
             return None, None, line
-        elif '?' in line:
+        elif '?' in line    :
             if line[0] == '?':
                 if len(line) == 1:
                     return 'menu_summary', '', line
