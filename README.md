@@ -17,14 +17,14 @@ To Run the provided menutree run:
 python simplecli/start.py
 
 This should produce an interactive shell similar to the following sample:
-
+```
 ### simplecli/start.py 
 *** Home Menu ***
 home_menu#?
 Command or syntax not recognized: "?"
 
 Documented commands (type help <topic>):
-\========================================
+========================================
 back  clear  help  home  quit  services_menu  show_cli_env  tests_menu
 
   *** SUB MENUS ***
@@ -45,7 +45,7 @@ home_menu>tests_menu#?
 Command or syntax not recognized: "?"
 
 Documented commands (type help <topic>):
-\========================================
+========================================
 back                clear  home               object_storage_menu  show_cli_env
 block_storage_menu  help   network_test_menu  quit               
 
@@ -62,5 +62,5 @@ block_storage_menu  help   network_test_menu  quit
   quit                --> "Quits the program."
   show_cli_env        --> "show current cli environment variables"
 home_menu>tests_menu#
-
+```
 
