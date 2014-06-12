@@ -24,7 +24,7 @@ home_menu#?
 Command or syntax not recognized: "?"
 
 Documented commands (type help <topic>):
-========================================
+\========================================
 back  clear  help  home  quit  services_menu  show_cli_env  tests_menu
 
   *** SUB MENUS ***
@@ -45,7 +45,7 @@ home_menu>tests_menu#?
 Command or syntax not recognized: "?"
 
 Documented commands (type help <topic>):
-========================================
+\========================================
 back                clear  home               object_storage_menu  show_cli_env
 block_storage_menu  help   network_test_menu  quit               
 
