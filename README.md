@@ -7,12 +7,12 @@ Simple CLI uses python's Cmd() and extends it to provide an interactive menu tre
 
 
 install:
-========
+-------
 (sudo) python setup.py install
 
 
 basic usage:
-============
+------------
 To Run the provided menutree run: 
 python simplecli/start.py
 
