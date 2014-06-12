@@ -30,9 +30,6 @@ class BaseMenu(Cmd):
                  stderr=None):
         # Note super does not work as Cmd() is an 'old style' class which
         # does not inherit from object(). Instead call init directly.
-        # super(BaseMenu, self).__init__(completekey=completekey,
-        #                                stdin=stdin,
-        #                                stdout=stdout)
         Cmd.__init__(self, completekey=completekey, stdin=stdin, stdout=stdout)
         if not self.name:
             raise ValueError('Class must define "name"')
@@ -166,9 +163,8 @@ class BaseMenu(Cmd):
         except Exception as FE:
             if self.env.debug:
                 print_exc(file=self.stderr)
-            self.eprint('Error while executing line: "{0}", err:{1}\n'
-                            .format(line, str(FE)))
-
+            self.eprint('\n"{0}", err:{1}'.format(line, str(FE)))
+            self.oprint('\n')
 
     def do_back(self, args):
         """Go Back one level in menu tree"""
