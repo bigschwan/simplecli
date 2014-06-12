@@ -42,7 +42,7 @@ class BaseMenu(Cmd):
             self.stderr = stderr
         self.lastmenu = lastmenu
         self.homemenu= homemenu
-        assert isinstance(env,BaseEnv), "env variable must be of type BaseEnv"
+        assert isinstance(env, BaseEnv), "env variable must be of type BaseEnv"
         self.env = env
         self.prompt_method = prompt_method or env.prompt_method
         self.path_delimeter = path_delimeter or env.path_delimeter
