@@ -4,6 +4,7 @@ from cmd import Cmd
 from traceback import print_exc
 from simplecli.baseenv import BaseEnv
 from argparse import ArgumentError
+from inspect import isclass
 
 class BaseMenu(Cmd):
     # This must define for subclasses of BaseMenu
@@ -21,8 +22,6 @@ class BaseMenu(Cmd):
     def __init__(self,
                  env,
                  path_from_home=None,
-                 lastmenu=None,
-                 homemenu=None,
                  completekey='tab',
                  prompt_method=None,
                  path_delimeter=None,
@@ -41,16 +40,15 @@ class BaseMenu(Cmd):
             self.stderr = sys.stderr
         else:
             self.stderr = stderr
-        self.lastmenu = lastmenu
-        self.homemenu= homemenu
         assert isinstance(env, BaseEnv), "env variable must be of type BaseEnv"
         self.env = env
         self.prompt_method = prompt_method or env.prompt_method
         self.path_delimeter = path_delimeter or env.path_delimeter
         self.path_from_home = path_from_home or []
-        if not self.path_from_home or self.path_from_home[-1] != self.name:
-            self.path_from_home.append(self.name)
-        self.path = str(self.path_delimeter).join(self.path_from_home)
+        if not self.path_from_home or self.path_from_home[-1] != self:
+            self.path_from_home.append(self)
+        self.path = (str(self.path_delimeter)
+                     .join(str(x.name) for x in self.path_from_home))
         self._init_submenus()
 
     @property
@@ -156,10 +154,11 @@ class BaseMenu(Cmd):
 
     def do_home(self, args):
         """Return to the home menu of the cli"""
-        if not self.homemenu:
-            self.eprint("No home menu defined. Currently at home Menu?")
+        if self == self.path_from_home[0]:
+            self.oprint('Currently at home menu')
         else:
-            self._load_menu(self.homemenu, path_from_home=[])
+            self._load_menu(self.path_from_home[0],
+                            path_from_home=self.path_from_home[:1])
 
     def onecmd(self, line):
         try:
@@ -172,28 +171,24 @@ class BaseMenu(Cmd):
 
 
     def do_back(self, args):
-        """Go Back to last menu"""
-        if not self.lastmenu:
-            self.eprint("No last menu defined. Currently at home Menu?")
-        else:
+        """Go Back one level in menu tree"""
+        if len(self.path_from_home) > 1:
             self.path_from_home.pop()
-            self._load_menu(self.lastmenu, path_from_home=self.path_from_home)
+            self._load_menu(self.path_from_home[-1],
+                            path_from_home=self.path_from_home)
 
     def _load_menu(self, menu, path_from_home=None):
         if path_from_home is None:
             path_from_home = self.path_from_home
         if isinstance(menu, BaseMenu):
             menu.env = self.env
-            menu.lastmenu = self
-            menu.homemenu = self.homemenu,
             menu.path_from_home = path_from_home
-        elif issubclass(menu, BaseMenu):
+        elif isclass(menu) and issubclass(menu, BaseMenu):
             menu = menu(self.env,
-                        lastmenu=self,
-                        homemenu=self.homemenu,
                         path_from_home=path_from_home)
         else:
-            raise TypeError('Menu must of type BaseMenu')
+            raise TypeError('Menu must of type BaseMenu, menu:{0}, type:{1}'
+                            .format(str(menu), type(menu)))
         self = menu
         self.cmdloop(intro=self.intro)
         self.oprint("**** {0} MENU ****".format(str(self.name)) + "\n")
