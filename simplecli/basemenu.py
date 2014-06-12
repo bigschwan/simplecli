@@ -111,15 +111,14 @@ class BaseMenu(Cmd):
         newfunc = lambda args: self._load_menu(menu)
         setattr(self, method_name, newfunc)
         new_method = getattr(self, method_name)
-        new_method.__doc__ = "(MENU ITEM) " + (description or
-                                                menu._summary or
-                                                "")
+        new_method.__doc__ = description or menu._summary or ""
         new_method.__submenu__ = True
 
     @_add_doc_string(Cmd.do_help.im_func.func_doc)
     def do_help(self, arg):
         Cmd.do_help(self, arg)
-        self.menu_summary(arg)
+        if not arg:
+            self.menu_summary(arg)
 
     def oprint(self, buf):
         self.stdout.write(str(buf).rstrip("\n") + "\n")
@@ -228,10 +227,14 @@ class BaseMenu(Cmd):
         line = line.strip()
         if not line:
             return None, None, line
-        elif line[0] == '?' and len(line) == 1:
-            return 'menu_summary', '', line
-        else:
-            return Cmd.parseline(self, line)
+        elif '?' in line:
+            if line[0] == '?':
+                if len(line) == 1:
+                    return 'menu_summary', '', line
+            else:
+                line = 'help ' + str(line).replace('?','')
+
+        return Cmd.parseline(self, line)
 
     def do_quit(self, args):
         """Quits the program."""
