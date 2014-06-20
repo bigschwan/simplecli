@@ -21,6 +21,7 @@ class BaseEnv():
         self.account_name = None
         self.user_name = None
         self.debug=True
+        self.page_break=True
         self.plugin_dir = None
         self.menu_instances = []
         self.default_input = None # ie stdin

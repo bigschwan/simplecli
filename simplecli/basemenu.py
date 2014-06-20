@@ -4,6 +4,9 @@ from cmd import Cmd
 from traceback import print_exc
 from simplecli.baseenv import BaseEnv
 from inspect import isclass
+import termios
+import tty
+
 try:
     from colorama import init, Fore, Back
 except ImportError:
@@ -76,6 +79,12 @@ class BaseMenu(Cmd, object):
         self.path_from_home = path_from_home
         self._init_submenus()
 
+
+    def do_python_cmd(self, cmd):
+        '''
+        Executes python eval(cmd) for simple python debugging
+        '''
+        self.oprint(eval(cmd), allow_break=False)
 
     @property
     def path_from_home(self):
@@ -152,6 +161,18 @@ class BaseMenu(Cmd, object):
         return buf
 
 
+    def _get_terminal_size(self):
+        '''
+        Attempts to get terminal size. Currently only Linux.
+        returns (height, width)
+        '''
+        # todo Add Windows support
+        import fcntl
+        import struct
+        return struct.unpack('hh', fcntl.ioctl(self.stdout,
+                                               termios.TIOCGWINSZ,
+                                               '1234'))
+
     def _init_plugin_menus(self):
         plugins = self.env._get_plugins_for_parent(self.name)
 
@@ -184,14 +205,64 @@ class BaseMenu(Cmd, object):
         if not arg:
             self.menu_summary(arg)
 
-    def oprint(self, buf):
-        self.stdout.write(str(buf).rstrip("\n") + "\n")
-        self.stdout.flush()
+    def oprint(self, buf, allow_break=True):
+        if allow_break and self.env.page_break:
+            height, width = self._get_terminal_size()
+            lines = buf.splitlines()
+            x = 0
+            y = 0
+            length = height
+            line_cnt = len(lines)
+            while y < line_cnt:
+                length = length or line_cnt
+                y += length
+                if y >= line_cnt:
+                    y = line_cnt - 1
+                for line in lines[x:y]:
+                    self.stdout.write(str(line) + "\n")
+                self.stdout.flush()
+                x = y
+                if (y + 1) >= line_cnt:
+                    return
+                else:
+                    self.stdout.write(':\r')
+                    self.stdout.flush()
+                    fd = self.stdin.fileno()
+                    old_settings = termios.tcgetattr(fd)
+                    try:
+                        tty.setraw(sys.stdin.fileno())
+                        ch = sys.stdin.read(1)
+                    finally:
+                        termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
+                    print '\b ',
+                    ch = str(ch)
+                    if ch == "\n" or ch == "\r" or ch == "":
+                        length = height
+                    elif ch == "a":
+                        length = 0
+                    elif ch == "q":
+                        print "\n"
+                        return
+                    else:
+                        length = 1
+        else:
+            self.stdout.write(str(buf).rstrip("\n") + "\n")
+            self.stdout.flush()
 
     def eprint(self, buf):
         buf = self._color(buf=str(buf), color='RED')
         self.stderr.write(str(buf).rstrip("\n") + "\n")
         self.stderr.flush()
+
+    def do_set_page_break(self, enable):
+        """
+        Enables/disables the global page break env var.
+        Usage set_page_break [on/off]
+        """
+        if int(enable):
+            self.env.page_break = True
+        else:
+            self.env.page_break = False
 
     def do_sample_cmd(self, args):
         """
@@ -224,7 +295,7 @@ class BaseMenu(Cmd, object):
             self.oprint('Currently at home menu')
         else:
             self._load_menu(self.path_from_home[0],
-                            path_from_home=self.path_from_home[:1])
+                            path_from_home=[])
 
     def onecmd(self, line):
         try:
@@ -241,7 +312,8 @@ class BaseMenu(Cmd, object):
     def do_back(self, args):
         """Go Back one level in menu tree"""
         if len(self.path_from_home) > 1:
-            self.path_from_home.pop()
+            if self.path_from_home[-1] == self:
+                self.path_from_home.pop()
             self._load_menu(self.path_from_home[-1],
                             path_from_home=self.path_from_home)
 
@@ -250,7 +322,6 @@ class BaseMenu(Cmd, object):
             path_from_home = self.path_from_home
         if isinstance(menu, BaseMenu):
             menu.env = self.env
-            path_from_home.append(menu)
             menu.path_from_home = path_from_home
             menu._init_submenus()
         elif isclass(menu) and issubclass(menu, BaseMenu):
@@ -276,7 +347,7 @@ class BaseMenu(Cmd, object):
 
     def default(self, args):
         self.eprint('Command or syntax not recognized: "{0}"'.format(args))
-        return self.do_help('')
+        return self.menu_summary(args)
 
     def do_clear(self, args):
         """
