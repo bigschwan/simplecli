@@ -132,7 +132,9 @@ class Images_Menu(BaseMenu):
                 raise CliError(
                     'Could not parse filter argument:"{0}", error:"{1}"'
                     .format(item, str(e)))
-
+        # Get the image catalog from the catalog url and create image_j
+        # objects from the json provided. Use image_j versioned validators
+        # to verify json and/or provide sane defaults, etc..
         r = requests.get(self._catalog_url)
         j = json.loads(r.text)
         images = []
@@ -144,14 +146,22 @@ class Images_Menu(BaseMenu):
             for filter in filters:
                 match = False
                 # See if the image has an attribute that matches
-                # Replace - with _ for image attribute lookups
+                # Note: Replace '-' with '_' for image attribute lookups
+                # as they are renamed in the class
                 image_attr = getattr(image, str(filter).replace('-','_'))
                 if image_attr:
+                    # iterate through any filters provided from the command line
+                    # if an image fails to meet the criteria of any filter
+                    # it will be removed from the display list
                     for value in filters[filter]:
+                        # Check if filter is using a normal
+                        # operator ie: -eq, -gt, ex: filter=-eq:words
                         op = re.search("^-+\w\w:", value)
                         if op:
                             mod = operator
                         else:
+                            # Check if filter is using reg ex in filter
+                            # ie: filter=-re.search:expression
                             op = re.search("^-+re.\w+:", value)
                             if op:
                                 mod = re
@@ -165,13 +175,20 @@ class Images_Menu(BaseMenu):
                                 self.eprint('Warning: operator "{0}" ({1}) '
                                             'not valid? for mod:"{2}"'
                                             .format(op, opstr, mod))
+                        # If an operator was not provided or was invalid,
+                        # use the default op for 'equals'
                         op = op or operator.eq
+                        # This can be improved to do more complex lookups and
+                        # inspection, for now only handling lists and
+                        # instances.
                         if isinstance(image_attr, list):
                             if value in image_attr:
                                 match = True
                                 break
                         else:
+                            # Evaluate each item against the filters...
                             if getattr(op, '__module__', None) == 'operator':
+                                # Using operator.<func>
                                 try:
                                     if op(float(image_attr), float(value)):
                                         match = True
@@ -181,13 +198,14 @@ class Images_Menu(BaseMenu):
                                         match = True
                                         break
                             else:
-                                # using re.search
+                                # Using re.<func>
                                 if op(value, str(image_attr)):
                                     match = True
                                     break
                 if not match:
                     show_images.remove(image)
                     break
+        # Now format and print the images...
         if not show_images:
             self.eprint('No images for filters:' + str(filters))
         for image in show_images:
