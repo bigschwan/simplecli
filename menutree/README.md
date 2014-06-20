@@ -15,7 +15,7 @@ python example_start.py
 
 Example:
 -------------
-
+```
 ### python example_start.py 
 *** Home Menu ***
 home_menu#
@@ -139,3 +139,4 @@ home_menu>images_menu#show_catalog os=fedora,cirros hypervisors_supported=kvm, d
 | name                                 | 1298440207                           |
 +--------------------------------------+--------------------------------------+
 home_menu>images_menu#
+```
