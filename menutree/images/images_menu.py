@@ -187,6 +187,7 @@ class Images_Menu(BaseMenu):
                                     break
                 if not match:
                     show_images.remove(image)
+                    break
         if not show_images:
             self.eprint('No images for filters:' + str(filters))
         for image in show_images:
