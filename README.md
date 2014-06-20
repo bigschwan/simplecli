@@ -14,11 +14,11 @@ install:
 basic usage:
 ------------
 To Run the provided menutree run: 
-python simplecli/start.py
+python simplecli/menu_tree/example_start.py
 
 This should produce an interactive shell similar to the following sample:
 ```
-### simplecli/start.py 
+### example_start.py 
 *** Home Menu ***
 home_menu#?
 Command or syntax not recognized: "?"
