@@ -3,21 +3,50 @@ import sys
 from cmd import Cmd
 from traceback import print_exc
 from simplecli.baseenv import BaseEnv
-from argparse import ArgumentError
 from inspect import isclass
+try:
+    from colorama import init, Fore, Back
+except ImportError:
+    pass
 
-class BaseMenu(Cmd):
-    # This must define for subclasses of BaseMenu
+class CliError(Exception):
+    def __init__(self, value):
+        self.value = value
+
+    def __str__(self):
+        return repr(self.value)
+
+class BaseMenu(Cmd, object):
+
+    #########################################################################
+    # BaseMenu class is meant to be used to create parent and child menus   #
+    # Menus can be defined with a unique name and then linked by either     #
+    # the _submenues list providing BaseMenu class submenus, or by adding   #
+    # the plugin file into the plugins dir (specificied in simplecli.conf)  #
+    # to add the menu to the parent menu(s) as a child/sub menu             #
+    #########################################################################
+
+    # This must be defined for subclasses of BaseMenu
     name = None
+
     # _submenus is a list of BaseMenu types which will be accessible through
-    # this menu's context
+    # this menu's context. Submenus can also be linked via plugin menus.
     _submenus = []
+
     # _summary is a brief single string summary used in help menus
     _summary = None
-    #_description is buffer used for more detailed help menus
+
+    # _description is buffer used for more detailed help menus
     _description = None
-    #_info is the message printed when this menu is loaded
+
+    # _info is the message printed when this menu is loaded
     _intro = None
+
+    # _parents if this menu is loaded as a plugin, _parents can be populated
+    # with a list of strings matching the parent menu(s)'s name for which this
+    # menu will be loaded as a sub menu.
+    _parents = []
+
 
     def __init__(self,
                  env,
@@ -30,6 +59,8 @@ class BaseMenu(Cmd):
                  stderr=None):
         # Note super does not work as Cmd() is an 'old style' class which
         # does not inherit from object(). Instead call init directly.
+        if 'colorama' in sys.modules:
+            init()
         Cmd.__init__(self, completekey=completekey, stdin=stdin, stdout=stdout)
         if not self.name:
             raise ValueError('Class must define "name"')
@@ -41,12 +72,25 @@ class BaseMenu(Cmd):
         self.env = env
         self.prompt_method = prompt_method or env.prompt_method
         self.path_delimeter = path_delimeter or env.path_delimeter
-        self.path_from_home = path_from_home or []
-        if not self.path_from_home or self.path_from_home[-1] != self:
-            self.path_from_home.append(self)
-        self.path = (str(self.path_delimeter)
-                     .join(str(x.name) for x in self.path_from_home))
+        self._path_from_home = []
+        self.path_from_home = path_from_home
         self._init_submenus()
+
+
+    @property
+    def path_from_home(self):
+        return self._path_from_home
+
+    @path_from_home.setter
+    def path_from_home(self, path):
+        self._path_from_home = path or []
+        if not self._path_from_home or self._path_from_home[-1] != self:
+            self._path_from_home.append(self)
+
+    @property
+    def path(self):
+        return (str(self.path_delimeter)
+                .join(str(x.name) for x in self.path_from_home))
 
     @property
     def prompt(self):
@@ -70,8 +114,15 @@ class BaseMenu(Cmd):
         intro = self._intro or "*** {0} ***".format(self.name)
         return intro
 
+    @intro.setter
+    def intro(self, intro):
+        self._intro = intro
+
     def _init_submenus(self, menus=None):
-        menus = menus or self._submenus
+        # Get the menus defined for this menu class
+        menus = menus or self._submenus or []
+        # Get the dynamic menus/plugins
+        menus.extend(self.env._get_plugins_for_parent(self))
         for menu in menus:
             try:
                 if isinstance(menu, BaseMenu) or issubclass(menu, BaseMenu):
@@ -86,6 +137,23 @@ class BaseMenu(Cmd):
                 self.eprint('Error loading submenu "{0}", err:{1}\n'
                             .format(mname,
                                     str(ME)))
+
+    def _color(self, buf, color='BLUE'):
+        color = str(color).upper()
+        if 'colorama' in sys.modules:
+            color = getattr(Fore, color, "")
+            if not color:
+                return buf
+            lastchar = ''
+            if buf.endswith('\n'):
+                lastchar = '\n'
+                buf.rstrip('\n')
+            buf = '{0}{1}{2}{3}'.format(color,str(buf), lastchar, Fore.RESET)
+        return buf
+
+
+    def _init_plugin_menus(self):
+        plugins = self.env._get_plugins_for_parent(self.name)
 
     def get_names(self):
         names = dir(self.__class__)
@@ -121,6 +189,7 @@ class BaseMenu(Cmd):
         self.stdout.flush()
 
     def eprint(self, buf):
+        buf = self._color(buf=str(buf), color='RED')
         self.stderr.write(str(buf).rstrip("\n") + "\n")
         self.stderr.flush()
 
@@ -133,7 +202,7 @@ class BaseMenu(Cmd):
         param y: (optional) arg to be printed to stderr
         """
         if not args:
-            raise ArgumentError(None,'No Arguments provided to sample_cmd')
+            raise CliError(None,'No Arguments provided to sample_cmd')
         args = str(args).split()
         self.oprint('This is printed to stdout:' + str(args.pop(0)))
         if args:
@@ -160,6 +229,9 @@ class BaseMenu(Cmd):
     def onecmd(self, line):
         try:
             return Cmd.onecmd(self, line)
+        except CliError as AE:
+            self.eprint("ERROR: " + str(AE))
+            return self.onecmd("? " + str(line))
         except Exception as FE:
             if self.env.debug:
                 print_exc(file=self.stderr)
@@ -178,16 +250,26 @@ class BaseMenu(Cmd):
             path_from_home = self.path_from_home
         if isinstance(menu, BaseMenu):
             menu.env = self.env
+            path_from_home.append(menu)
             menu.path_from_home = path_from_home
+            menu._init_submenus()
         elif isclass(menu) and issubclass(menu, BaseMenu):
-            menu = menu(self.env,
-                        path_from_home=path_from_home)
+            existing_menu = self.env.get_menu_by_class(menu)
+            if existing_menu:
+                menu = existing_menu
+                menu.path_from_home = path_from_home
+                menu._init_submenus()
+            else:
+                menu = menu(self.env,
+                            path_from_home=path_from_home)
+                self.env.menu_instances.append(menu)
         else:
             raise TypeError('Menu must of type BaseMenu, menu:{0}, type:{1}'
                             .format(str(menu), type(menu)))
         self = menu
         self.cmdloop(intro=self.intro)
-        self.oprint("**** {0} MENU ****".format(str(self.name)) + "\n")
+        self.oprint(self._color('BLUE') + "**** {0} MENU ****"
+                    .format(str(self.name)) + "\n")
 
     def emptyline(self):
         return
@@ -205,6 +287,7 @@ class BaseMenu(Cmd):
     def menu_summary(self, args):
         """Prints Summary of commands and sub-menu items"""
         submenus = ""
+        basecommands = ""
         commands = ""
         prevname = None
         names = self.get_names()
@@ -227,14 +310,21 @@ class BaseMenu(Cmd):
                 submenus += '\t{0} {1} "{2}"'.format(cmd.ljust(maxlen),
                                                      "-->",
                                                      doc) + "\n"
+            elif hasattr(BaseMenu, name):
+                basecommands += '\t{0} {1} "{2}"'.format(cmd.ljust(maxlen),
+                                                         "-->",
+                                                         doc) + "\n"
             else:
                 commands += '\t{0} {1} "{2}"'.format(cmd.ljust(maxlen),
                                                      "-->",
                                                      doc) + "\n"
-        self.oprint("{0}\n{1}\n{2}\n{3}\n".format('\t*** SUB MENUS ***',
-                                                  submenus,
-                                                  '\t*** COMMANDS ***',
-                                                  commands))
+        self.oprint("{0}\n{1}\n{2}\n{3}\n{4}\n{5}".format(
+            '\t' + self._color('*** SUB MENUS ***'),
+            submenus,
+            '\t' + self._color('*** ' + self.name.upper() + ' COMMANDS ***'),
+            commands,
+            '\t' + self._color('*** BASE COMMANDS ***'),
+            basecommands))
 
     def parseline(self, line):
         """Parse the line into a command name and a string containing
@@ -257,3 +347,4 @@ class BaseMenu(Cmd):
         """Quits the program."""
         self.oprint("Quitting.")
         raise SystemExit
+
