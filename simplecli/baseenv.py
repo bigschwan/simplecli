@@ -3,43 +3,79 @@ __author__ = 'clarkmatthew'
 import os
 import sys
 import imp
+import json
+from namespace import Namespace
+from pprint import pformat
+from config import Config
 
-class BaseEnv():
+class BaseEnv(Config):
     """
     The intention of this class is to hold environment variables which might be
     global to the tool, it's menus, and the command executed within.
     """
-    def __init__(self):
+    def __init__(self,
+                 config_path=None,
+                 cli_config_file=None,
+                 name='simplecli'):
+        self.name = name
+        self._config_blocks= Namespace()
+        self.config_path = config_path or os.path.expanduser('~/.simplecli')
+        self.config_file_path = cli_config_file or \
+                                os.path.join(self.config_path,
+                                            'simplecli.config')
         self.default_username = None
         self.default_password = None
-        self.default_sshkey = None
-        self.credpath = None
-        self.config_file = None
-        self.access_key = None
-        self.secret_key = None
-        self.account_id = None
-        self.account_name = None
         self.user_name = None
-        self.debug=True
-        self.page_break=True
+        self.debug = True
+        self.history_file = os.path.join(self.config_path, 'history')
+        self.page_break = True
         self.plugin_dir = None
         self.menu_instances = []
-        self.default_input = None # ie stdin
-        self.default_output = None # ie stdout or stderr
+        self.default_input = sys.stdin # ie stdin
+        self.default_output = sys.stdout # ie stdout or stderr
+        self.default_error = sys.stderr #ie stderr
         self.prompt_method = None # define this method as a global way to
-                                  #  construct menu prompts
+                               #  construct menu prompts
         self.path_delimeter = ">" # Used for constructing the default prompt
-                                  #  and displayed path string(s)
+                              #  and displayed path string(s)
+
+        self.load_config()
         self.load_plugin_menus()
 
-    def read_config(self, path):
-        print 'not implemented yet'
 
-    def set_config(self, key, value):
-        print 'not implemented yet'
+    def get_config_block(self, block_name):
+        return getattr(self._config_blocks, block_name, None)
 
-    def create_config(self, path):
-        print 'not implemented yet'
+    def add_config_block(self, block_name, configblock=None, force=False):
+        assert block_name, 'block_name was not populated'
+        block = getattr(self._config_blocks, block_name, None)
+        if block and not force:
+            raise AttributeError('Base env already has config section:"{0}", '
+                                 'use force to replace this section'
+                                 .format(block_name))
+        if configblock:
+            if isinstance(configblock ,dict):
+                configblock = Namespace(newdict=configblock)
+        else:
+            configblock = Namespace()
+        setattr(self._config_blocks, block_name, configblock)
+
+    def save_config_block(self, config_block=None, path=None):
+        config_block = config_block or self
+        if not isinstance(config_block, Config):
+            config_block = self.get_config_block(config_block)
+            if not config_block:
+                raise AttributeError('Save Failed. No Config block named:"{0}"'
+                                     .format(config_block))
+        path = path or self._config_file_path
+        savefile = file(path,"w")
+        with savefile:
+            savefile.write(pformat(vars(self)))
+
+
+    def save_all(self):
+        for conf in vars(self._config_blocks):
+            conf._save()
 
     def load_plugin_menus(self):
         self.plugin_menus = []
@@ -79,6 +115,40 @@ class BaseEnv():
             if item.__class__ == menuclass:
                 return item
         return None
+
+    def get_formatted_conf(self, blocks=None):
+        ret_buf = ""
+        blocks = blocks or [self]
+        if not isinstance(blocks, list):
+            if str(blocks).upper() == 'ALL':
+                blocks = vars(self._config_blocks)
+            else:
+                blocks = [blocks]
+        for block in blocks:
+            if not isinstance(block, Config):
+                block = self.get_config_block(block)
+                if not block:
+                    raise ValueError('Could not find config for:' + str(block))
+            ret_buf += pformat(vars(block))
+        return ret_buf
+
+    def get_config_diff(self, blocks=None):
+        ret_buf = ""
+        blocks = blocks or [self]
+        if not isinstance(blocks, list):
+            if str(blocks).upper() == 'ALL':
+                blocks = vars(self._config_blocks)
+            else:
+                blocks = [blocks]
+        for block in blocks:
+            if not isinstance(block, Config):
+                block = self.get_config_block(block)
+                if not block:
+                    raise ValueError('Could not find config for:' + str(block))
+            ret_buf += "*************** {0} ***************".format(block.name)
+            ret_buf += pformat(vars(block))
+        return ret_buf
+
 
     def get_menu_by_name(self, name, list=None):
         list = list or self.menu_instances

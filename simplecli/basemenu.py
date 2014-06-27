@@ -7,6 +7,7 @@ from inspect import isclass
 import termios
 import tty
 
+
 try:
     from colorama import init, Fore, Back
 except ImportError:
@@ -54,7 +55,6 @@ class BaseMenu(Cmd, object):
     def __init__(self,
                  env,
                  path_from_home=None,
-                 completekey='tab',
                  prompt_method=None,
                  path_delimeter=None,
                  stdin=None,
@@ -64,7 +64,7 @@ class BaseMenu(Cmd, object):
         # does not inherit from object(). Instead call init directly.
         if 'colorama' in sys.modules:
             init()
-        Cmd.__init__(self, completekey=completekey, stdin=stdin, stdout=stdout)
+        Cmd.__init__(self, completekey='tab', stdin=stdin, stdout=stdout)
         if not self.name:
             raise ValueError('Class must define "name"')
         if stderr is None:
@@ -77,8 +77,14 @@ class BaseMenu(Cmd, object):
         self.path_delimeter = path_delimeter or env.path_delimeter
         self._path_from_home = []
         self.path_from_home = path_from_home
+        self._preflight_checks()
         self._init_submenus()
 
+    def _preflight_checks(self):
+        """
+        Implement this method to run pre-init checks in __init__().
+        """
+        return
 
     def do_python_cmd(self, cmd):
         '''
@@ -192,12 +198,14 @@ class BaseMenu(Cmd, object):
     def _add_sub_menu(self, menu, description=None):
         assert isinstance(menu, BaseMenu) or issubclass(menu, BaseMenu), \
             'Error adding sub menu, item is not BaseMenu type'
+        #Add a local method to load the menu
         method_name = 'do_' + menu.name
-        newfunc = lambda args: self._load_menu(menu)
-        setattr(self, method_name, newfunc)
+        do_method = lambda args: self._load_menu(menu)
+        setattr(self, method_name, do_method)
         new_method = getattr(self, method_name)
         new_method.__doc__ = description or menu._summary or ""
         new_method.__submenu__ = True
+
 
     @_add_doc_string(Cmd.do_help.im_func.func_doc)
     def do_help(self, arg):
@@ -413,6 +421,12 @@ class BaseMenu(Cmd, object):
                 line = 'help ' + str(line).replace('?','')
 
         return Cmd.parseline(self, line)
+
+    def do_show_config(self, args):
+        self.oprint(self.env.get_formatted_conf())
+
+    def do_show_config_diff(self):
+        self.oprint(self.env.get_config_diff())
 
     def do_quit(self, args):
         """Quits the program."""

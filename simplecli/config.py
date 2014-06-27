@@ -2,45 +2,77 @@ __author__ = 'clarkmatthew'
 
 import os
 from simplecli.baseenv import BaseEnv
+from namespace import Namespace
+import json
+from pprint import pformat
+import difflib
 
 
-class Config():
+class Config(Namespace):
 
     '''
     Intention of this class is to provide utilities around reading and writing
     CLI environment related configuration.
     '''
-    def __init__(self, conf_path=None, env=None):
-       self.env = env #should be of type baseenv for shared env vars in shell
-       self.conf_path = None
-
-    def _get_conf_path(self, conf_path=None):
-        '''
-        :param conf_path: string, full path to conf file.
-        '''
-        default = 'simplecli.conf'
-        conf_path = conf_path or self.conf_path or \
-                    getattr(self.env, 'conf_path', None)
-        if conf_path:
-            conf_path = os.path.expanduser(conf_path)
-            if os.path.exists(conf_path):
-                return conf_path
-            else:
-                self.eprint('Configuration file not found at:"{0}"'.
-                            format(str(conf_path)))
-                return None
-        else:
-            # Try local and then home dir for simplecli.conf file.
-            conf_paths = [os.path.join(os.path.curdir, default),
-                          os.path.join(os.path.expanduser('~'),default)]
-            for conf_path in conf_paths:
-                if os.path.exists(conf_path):
-                    return conf_path
-        return None
+    def __init__(self,
+                 name=None,
+                 config_file_path=None,
+                 default_dict=None):
+        assert isinstance(env, BaseEnv), 'Must provide simplecli.BaseEnv ' \
+                                         'type as env'
+        #Create instance attributes from provided dict...
+        super(Config, self).__init__(newdict=default_dict)
+        self.env = env
+        self.name = getattr(self, 'name', name)
+        if not self.name:
+            raise AttributeError('Need to specify config name, or provide '
+                                 'name in default dict')
+        _config_file_name = str(self.name) + ".conf"
+        self._config_file_path = os.join(self.env.config_path,
+                                         _config_file_name)
 
 
-    def get_section(section):
-        raise NotImplementedError()
+    def _update_from_file(self, file_path=None):
+        newdict = self._get_dict_from_file(file_path=file_path)
+        self.__dict__.update(newdict)
 
-    def get(section, value):
-        raise NotImplementedError()
+    def _get_dict_from_file(self, file_path=None):
+        newdict = None
+        file_path = file_path or self._config_file_path
+        conf_file = file(file_path, "r+")
+        with conf_file:
+            data = file.read()
+        if data:
+            try:
+                newdict = json.loads(data)
+            except ValueError:
+                print self.env.default_error, 'Failed to load json config ' \
+                                              'from: "{0}"'.format(self._config_file)
+                raise
+        return newdict
+
+    def _diff(self, dict=None, file_path=None):
+        filedict = self._get_dict_from_file(file_path=file_path)
+        file_dict = pformat(vars(filedict)).splitlines()
+        self_dict = pformat(vars(self)).splitlines()
+        diff = difflib.Differ()
+        diff.compare(self_dict, filedict)
+        return '\n'.join(diff)
+
+    def _get_formatted_conf(self):
+        return pformat(vars(self))
+
+    def _save(self, path=None):
+        path = path or self._config_file_path
+        savefile = file(path,"w")
+        with savefile:
+            savefile.write(pformat(vars(self)))
+
+
+
+
+
+
+
+
+

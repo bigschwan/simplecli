@@ -2,6 +2,7 @@ __author__ = 'clarkmatthew'
 
 
 from simplecli.basemenu import BaseMenu, CliError
+from simplecli.namespace import Namespace
 import os
 import json
 import re
@@ -140,7 +141,7 @@ class Images_Menu(BaseMenu):
         images = []
         if 'images' in j:
             for image in j['images']:
-                images.append(Image_j(image))
+                images.append(CatalogImage(image))
         show_images = copy.copy(images)
         for image in images:
             for filter in filters:
@@ -224,27 +225,9 @@ class Images_Menu(BaseMenu):
                 self.oprint(image.get_summary_full())
 
 
-class Namespace(object):
-    """
-    Convert dict (if provided) into attributes and retun a somewhat
-    generic object
-    """
-    def __init__(self, newdict=None):
-        if newdict:
-            for key in newdict:
-                value = newdict[key]
-                try:
-                    if isinstance(value, dict):
-                        setattr(self, Namespace(value), key)
-                    else:
-                        setattr(self, key, value)
-                except:
-                    print '"{0}" ---> "{1}" , type: "{2}"'.format(key,
-                                                                 value,
-                                                                 type(value))
-                    raise
 
-class Image_j(Namespace):
+
+class CatalogImage(Namespace):
     '''
     Populate attributes from provided JSON string, or dict.
     If version is provided attempt to do some basic verification on the
@@ -265,7 +248,7 @@ class Image_j(Namespace):
             j_dict = json.loads(j_dict)
         #Load all attributes from dict into self...
         self.version = None
-        super(Image_j, self).__init__(newdict=j_dict)
+        super(CatalogImage, self).__init__(newdict=j_dict)
         #See if there's a validation/init method for this specific version...
         validation_method = None
         if not self.version:
