@@ -64,6 +64,17 @@ class BaseMenu(Cmd, object):
         # does not inherit from object(). Instead call init directly.
         if 'colorama' in sys.modules:
             init()
+
+        # Attempt to populate the command history from history file,
+        # if it has not yet, and the file is provided and exists
+        try:
+            import readline
+            if not readline.get_history_length():
+                history_path = getattr(env, 'history_path', None)
+                if history_path and os.path.exists(history_path):
+                        readline.read_history_file(history_path)
+        except ImportError:
+            pass
         Cmd.__init__(self, completekey='tab', stdin=stdin, stdout=stdout)
         if not self.name:
             raise ValueError('Class must define "name"')
@@ -73,8 +84,8 @@ class BaseMenu(Cmd, object):
             self.stderr = stderr
         assert isinstance(env, BaseEnv), "env variable must be of type BaseEnv"
         self.env = env
-        self.prompt_method = prompt_method or env.prompt_method
-        self.path_delimeter = path_delimeter or env.path_delimeter
+        self.prompt_method = prompt_method or env.simplecli_config.prompt_method
+        self.path_delimeter = path_delimeter or env.simplecli_config.path_delimeter
         self._path_from_home = []
         self.path_from_home = path_from_home
         self._preflight_checks()
@@ -146,7 +157,7 @@ class BaseMenu(Cmd, object):
                     raise AttributeError('Init sub-menu error, item must be '
                                          'of type BaseMenu')
             except Exception as ME:
-                if self.env.debug:
+                if self.env.simplecli_config.debug:
                     print_exc(file=self.stderr)
                 mname = str(menu)
                 self.eprint('Error loading submenu "{0}", err:{1}\n'
@@ -172,12 +183,15 @@ class BaseMenu(Cmd, object):
         Attempts to get terminal size. Currently only Linux.
         returns (height, width)
         '''
-        # todo Add Windows support
-        import fcntl
-        import struct
-        return struct.unpack('hh', fcntl.ioctl(self.stdout,
-                                               termios.TIOCGWINSZ,
-                                               '1234'))
+        try:
+            # todo Add Windows support
+            import fcntl
+            import struct
+            return struct.unpack('hh', fcntl.ioctl(self.stdout,
+                                                   termios.TIOCGWINSZ,
+                                                   '1234'))
+        except:
+            return 80
 
     def _init_plugin_menus(self):
         plugins = self.env._get_plugins_for_parent(self.name)
@@ -214,7 +228,7 @@ class BaseMenu(Cmd, object):
             self.menu_summary(arg)
 
     def oprint(self, buf, allow_break=True):
-        if allow_break and self.env.page_break:
+        if allow_break and self.env.simplecli_config.page_break:
             height, width = self._get_terminal_size()
             lines = buf.splitlines()
             x = 0
@@ -268,9 +282,9 @@ class BaseMenu(Cmd, object):
         Usage set_page_break [on/off]
         """
         if int(enable):
-            self.env.page_break = True
+            self.env.simplecli_config.page_break = True
         else:
-            self.env.page_break = False
+            self.env.simplecli_config.page_break = False
 
     def do_sample_cmd(self, args):
         """
@@ -293,8 +307,8 @@ class BaseMenu(Cmd, object):
         if not self.env:
             buf = "\tNo env found?"
         else:
-            for key in self.env.__dict__:
-                buf += "\t{0} -->  {1} \n".format(key, self.env.__dict__[key])
+            for key in self.env.simplecli_config.__dict__:
+                buf += "\t{0} -->  {1} \n".format(key, self.env.simplecli_config.__dict__[key])
         self.oprint(buf)
 
     def do_home(self, args):
@@ -312,7 +326,7 @@ class BaseMenu(Cmd, object):
             self.eprint("ERROR: " + str(AE))
             return self.onecmd("? " + str(line))
         except Exception as FE:
-            if self.env.debug:
+            if self.env.simplecli_config.debug:
                 print_exc(file=self.stderr)
             self.eprint('\n"{0}", err:{1}'.format(line, str(FE)))
             self.oprint('\n')
@@ -425,11 +439,33 @@ class BaseMenu(Cmd, object):
     def do_show_config(self, args):
         self.oprint(self.env.get_formatted_conf())
 
-    def do_show_config_diff(self):
+    def do_show_config_diff(self, args):
         self.oprint(self.env.get_config_diff())
+
+    def do_saveall(self, args):
+        return self.env.save_all()
 
     def do_quit(self, args):
         """Quits the program."""
         self.oprint("Quitting.")
+        if not 'force' in str(args).lower():
+            diff = self.env.get_config_diff(headers=False)
+            if diff:
+                self.eprint("Configuration has not been saved.\n"
+                            "Save now or use 'quit force' to quit"
+                            " without saving,\n"
+                            "or 'quit saveall' to save upon quit")
+                return
+        if 'saveall' in str(args).lower():
+            self.env.save_all()
+        try:
+            import readline
+            history_path = getattr(self.env, 'history_file', None)
+            if history_path:
+                if not os.path.exists(history_path):
+                    open(history_path, 'w').close()
+                readline.write_history_file(history_path)
+        except ImportError:
+            pass
         raise SystemExit
 

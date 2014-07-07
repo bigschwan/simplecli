@@ -3,44 +3,70 @@ __author__ = 'clarkmatthew'
 import os
 import sys
 import imp
-import json
 from namespace import Namespace
 from pprint import pformat
 from config import Config
 
-class BaseEnv(Config):
+
+class BaseEnv():
     """
     The intention of this class is to hold environment variables which might be
     global to the tool, it's menus, and the command executed within.
     """
     def __init__(self,
-                 config_path=None,
-                 cli_config_file=None,
+                 base_dir=None,
                  name='simplecli'):
         self.name = name
-        self._config_blocks= Namespace()
-        self.config_path = config_path or os.path.expanduser('~/.simplecli')
-        self.config_file_path = cli_config_file or \
-                                os.path.join(self.config_path,
-                                            'simplecli.config')
-        self.default_username = None
-        self.default_password = None
-        self.user_name = None
-        self.debug = True
-        self.history_file = os.path.join(self.config_path, 'history')
-        self.page_break = True
-        self.plugin_dir = None
+        self._config_blocks = Namespace()
         self.menu_instances = []
-        self.default_input = sys.stdin # ie stdin
-        self.default_output = sys.stdout # ie stdout or stderr
-        self.default_error = sys.stderr #ie stderr
-        self.prompt_method = None # define this method as a global way to
-                               #  construct menu prompts
-        self.path_delimeter = ">" # Used for constructing the default prompt
-                              #  and displayed path string(s)
-
-        self.load_config()
+        self.base_dir = base_dir or os.path.expanduser('~/.simplecli')
+        if os.path.exists(self.base_dir):
+            if not os.path.isdir(self.base_dir):
+                raise ValueError('base dir provided is not a dir:"{0}'
+                                 .format(self.base_dir))
+        else:
+            os.makedirs(self.base_dir)
+        self.simplecli_config_file = os.path.join(self.base_dir,
+                                                  str(name) + '.config')
+        self.simplecli_config = None
+        self.init_config()
+        if self.simplecli_config.default_input:
+            self.default_input = self._get_stdio(self.simplecli_config.default_input)
+        if self.simplecli_config.default_output:
+            self.default_output = self._get_stdio(self.simplecli_config.default_output)
+        if self.simplecli_config.default_error:
+            self.default_error = self._get_stdio(self.simplecli_config.default_error)
         self.load_plugin_menus()
+
+
+    def _get_stdio(self, filename):
+        if hasattr(sys, filename):
+            return getattr(sys, filename)
+        else:
+            return open(filename, 'wa')
+
+
+    def init_config(self):
+        simplecli = Config(config_file_path=self.simplecli_config_file,
+                           name='simplecli')
+        simplecli.default_username = None
+        simplecli.default_password = None
+        simplecli.user_name = None
+        simplecli.debug = True
+        simplecli.history_file = os.path.join(self.base_dir  , 'history')
+        simplecli.page_break = True
+        simplecli.plugin_dir = None
+
+        simplecli.default_input = 'stdin' # ie stdin
+        simplecli.default_output = 'stdout' # ie stdout or stderr
+        simplecli.default_error = 'stderr' #ie stderr
+        simplecli.prompt_method = None # define this method as a global way to
+                               #  construct menu prompts
+        simplecli.path_delimeter = ">" # Used for constructing the default prompt
+                              #  and displayed path string(s)
+        simplecli._update_from_file()
+        self.add_config_block(configblock=simplecli, block_name='simplecli')
+        self.simplecli_config = simplecli
 
 
     def get_config_block(self, block_name):
@@ -60,8 +86,10 @@ class BaseEnv(Config):
             configblock = Namespace()
         setattr(self._config_blocks, block_name, configblock)
 
+
+    #todo remove this method
     def save_config_block(self, config_block=None, path=None):
-        config_block = config_block or self
+        config_block = config_block or self.simplecli_config
         if not isinstance(config_block, Config):
             config_block = self.get_config_block(config_block)
             if not config_block:
@@ -71,15 +99,18 @@ class BaseEnv(Config):
         savefile = file(path,"w")
         with savefile:
             savefile.write(pformat(vars(self)))
+            savefile.flush()
 
 
     def save_all(self):
+        self.simplecli_config._save()
         for conf in vars(self._config_blocks):
+            conf = getattr(self._config_blocks, conf)
             conf._save()
 
     def load_plugin_menus(self):
         self.plugin_menus = []
-        plugin_dir = self.plugin_dir or os.path.curdir
+        plugin_dir = self.simplecli_config.plugin_dir or os.path.curdir
         for file in os.listdir(plugin_dir):
             if (os.path.isfile(file) and file.startswith('menu')
                 and file.endswith('.py')):
@@ -118,7 +149,7 @@ class BaseEnv(Config):
 
     def get_formatted_conf(self, blocks=None):
         ret_buf = ""
-        blocks = blocks or [self]
+        blocks = blocks or [self.simplecli_config]
         if not isinstance(blocks, list):
             if str(blocks).upper() == 'ALL':
                 blocks = vars(self._config_blocks)
@@ -132,9 +163,9 @@ class BaseEnv(Config):
             ret_buf += pformat(vars(block))
         return ret_buf
 
-    def get_config_diff(self, blocks=None):
+    def get_config_diff(self, blocks=None, headers=True):
         ret_buf = ""
-        blocks = blocks or [self]
+        blocks = blocks or [self.simplecli_config]
         if not isinstance(blocks, list):
             if str(blocks).upper() == 'ALL':
                 blocks = vars(self._config_blocks)
@@ -145,8 +176,12 @@ class BaseEnv(Config):
                 block = self.get_config_block(block)
                 if not block:
                     raise ValueError('Could not find config for:' + str(block))
-            ret_buf += "*************** {0} ***************".format(block.name)
-            ret_buf += pformat(vars(block))
+            config_diff = block._diff()
+            if config_diff:
+                if headers:
+                    ret_buf += '---NAME:"{0}, FILE:{1}" ---\n'\
+                        .format(block.name, block.config_file_path)
+                ret_buf += config_diff
         return ret_buf
 
 

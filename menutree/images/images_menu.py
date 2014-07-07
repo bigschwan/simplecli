@@ -10,6 +10,7 @@ import copy
 import operator
 import requests
 from texttable import Texttable
+from prettytable import PrettyTable
 
 
 class Images_Menu(BaseMenu):
