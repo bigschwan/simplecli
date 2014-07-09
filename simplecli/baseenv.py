@@ -6,6 +6,8 @@ import imp
 from namespace import Namespace
 from pprint import pformat
 from config import Config
+from shutil import copyfile
+import json
 
 
 class BaseEnv():
@@ -17,7 +19,7 @@ class BaseEnv():
                  base_dir=None,
                  name='simplecli'):
         self.name = name
-        self._config_blocks = Namespace()
+        self._config_namespaces = Namespace()
         self.menu_instances = []
         self.base_dir = base_dir or os.path.expanduser('~/.simplecli')
         if os.path.exists(self.base_dir):
@@ -29,86 +31,133 @@ class BaseEnv():
         self.simplecli_config_file = os.path.join(self.base_dir,
                                                   str(name) + '.config')
         self.simplecli_config = None
-        self.init_config()
+        self.init_simplecli_config()
+        self._setup_stdio()
+        self._load_plugin_menus()
+
+
+    def _setup_stdio(self):
+        def _get_stdio(name):
+            if hasattr(sys, name):
+                return getattr(sys, name)
+            else:
+                return open(name, 'wa')
         if self.simplecli_config.default_input:
-            self.default_input = self._get_stdio(self.simplecli_config.default_input)
-        if self.simplecli_config.default_output:
-            self.default_output = self._get_stdio(self.simplecli_config.default_output)
-        if self.simplecli_config.default_error:
-            self.default_error = self._get_stdio(self.simplecli_config.default_error)
-        self.load_plugin_menus()
-
-
-    def _get_stdio(self, filename):
-        if hasattr(sys, filename):
-            return getattr(sys, filename)
+            self.default_input = _get_stdio(
+                self.simplecli_config.default_input)
         else:
-            return open(filename, 'wa')
+            self.default_input = sys.stdin
+        if self.simplecli_config.default_output:
+            self.default_output = _get_stdio(
+                self.simplecli_config.default_output)
+        else:
+            self.default_output = sys.stdout
+        if self.simplecli_config.default_error:
+            self.default_error = _get_stdio(
+                self.simplecli_config.default_error)
+        else:
+            self.default_error = sys.stderr
 
 
-    def init_config(self):
+
+    def init_simplecli_config(self):
         simplecli = Config(config_file_path=self.simplecli_config_file,
                            name='simplecli')
         simplecli.default_username = None
         simplecli.default_password = None
         simplecli.user_name = None
         simplecli.debug = True
-        simplecli.history_file = os.path.join(self.base_dir  , 'history')
+        simplecli.history_file = os.path.join(self.base_dir, 'history')
         simplecli.page_break = True
         simplecli.plugin_dir = None
 
         simplecli.default_input = 'stdin' # ie stdin
         simplecli.default_output = 'stdout' # ie stdout or stderr
-        simplecli.default_error = 'stderr' #ie stderr
+        simplecli.default_error = 'stderr' # ie stderr
         simplecli.prompt_method = None # define this method as a global way to
-                               #  construct menu prompts
-        simplecli.path_delimeter = ">" # Used for constructing the default prompt
-                              #  and displayed path string(s)
+                                       # construct menu prompts
+        simplecli.path_delimeter = ">" # Used for constructing the default
+                                       # prompt and displayed path string(s)
         simplecli._update_from_file()
-        self.add_config_block(configblock=simplecli, block_name='simplecli')
+        self.add_config_to_namespace(namespace_name='main',
+                                     config=simplecli,
+                                     create=True)
+        # Assign to local var for easy access as well
         self.simplecli_config = simplecli
 
+    def add_namespace(self, name):
+        '''
+        Adds a blank configuration namespace using 'name' to the
+        local _config_namespaces list.
+        Raises ValueError if the name already exists
+        Returns the new namespace object
+        '''
+        if getattr(self._config_namespaces, name, None):
+            raise ValueError('Config Namespace already exists for:"{0}"'
+                             .format(name))
+        newnamespace = Namespace()
+        setattr(self._config_namespaces, name, newnamespace)
+        return newnamespace
 
-    def get_config_block(self, block_name):
-        return getattr(self._config_blocks, block_name, None)
+    def get_namespace(self, name, create=False):
+        '''
+        Will retrieve an existing namespace object of 'name' if found.
+        If not found and 'create == True' then a new namespace obj will be
+        created, added to self._config_namespaces and returned.
+        '''
+        namespace = getattr(self._config_namespaces, name, None)
+        if not namespace and create:
+            namespace = self.add_namespace(name)
+        return namespace
 
-    def add_config_block(self, block_name, configblock=None, force=False):
-        assert block_name, 'block_name was not populated'
-        block = getattr(self._config_blocks, block_name, None)
-        if block and not force:
-            raise AttributeError('Base env already has config section:"{0}", '
-                                 'use force to replace this section'
-                                 .format(block_name))
-        if configblock:
-            if isinstance(configblock ,dict):
-                configblock = Namespace(newdict=configblock)
-        else:
-            configblock = Namespace()
-        setattr(self._config_blocks, block_name, configblock)
+    def get_config_from_namespace(self, config_name, namespace_name):
+        '''
+        Attempts to get a config object from the specified namespace
+        :param config_name: string, name of Config to fetch
+        :param namespace_name: string, name of namespace to fetch config from
+        returns Config obj
+        '''
+        assert isinstance(namespace_name, str), 'Expected String for ' \
+                                                'namespace name'
+        context = self.get_namespace(namespace_name)
+        if not context:
+            raise ValueError('Namespace does not exist:' +str(namespace_name))
+        return getattr(context, config_name, None)
 
+    def add_config_to_namespace(self,
+                              namespace_name,
+                              config, 
+                              force=False,
+                              create=False):
+        '''
+        Attempts to add a config object to the specified namespace
+        :param namespace_name: string, name of namespace to fetch config from
+        :param config: Config() obj to add to namespace named 'namespace_name'
+        :param force: boolean, will replace existing config block in namespace
+        :param create: bollean, will create namespace if it does not exist
+        '''
+        assert  isinstance(namespace_name, str)
+        context = self.get_namespace(namespace_name, create=create)
+        assert config.name, 'block_name was not populated'
+        if getattr(context, config.name, None) and not force:
+            raise AttributeError('Base env already has config at context:'
+                                 '"{0}", name:"{1}" use force to replace '
+                                 'this section'.format(namespace_name,
+                                                       config.name))
+        setattr(context, config.name, config)
 
-    #todo remove this method
-    def save_config_block(self, config_block=None, path=None):
-        config_block = config_block or self.simplecli_config
-        if not isinstance(config_block, Config):
-            config_block = self.get_config_block(config_block)
-            if not config_block:
-                raise AttributeError('Save Failed. No Config block named:"{0}"'
-                                     .format(config_block))
-        path = path or self._config_file_path
-        savefile = file(path,"w")
-        with savefile:
-            savefile.write(pformat(vars(self)))
-            savefile.flush()
+    def save_config(self, path=None):
+        path = path or self.simplecli_config_file
+        backup_path = path + '.bak'
+        config_json = self._config_namespaces._to_json()
+        if os.path.isfile(path):
+            copyfile(path, backup_path)
+        save_file = file(path, "w")
+        with save_file:
+            save_file.write(config_json)
+            save_file.flush()
 
-
-    def save_all(self):
-        self.simplecli_config._save()
-        for conf in vars(self._config_blocks):
-            conf = getattr(self._config_blocks, conf)
-            conf._save()
-
-    def load_plugin_menus(self):
+    def _load_plugin_menus(self):
         self.plugin_menus = []
         plugin_dir = self.simplecli_config.plugin_dir or os.path.curdir
         for file in os.listdir(plugin_dir):
@@ -142,7 +191,7 @@ class BaseEnv():
         #clean up class from module prefix
         #menuclass = str(menuclass).split('.').pop()
         list = list or self.menu_instances
-        for item in self.plugin_menus:
+        for item in self.menu_instances:
             if item.__class__ == menuclass:
                 return item
         return None
@@ -152,7 +201,7 @@ class BaseEnv():
         blocks = blocks or [self.simplecli_config]
         if not isinstance(blocks, list):
             if str(blocks).upper() == 'ALL':
-                blocks = vars(self._config_blocks)
+                blocks = vars(self._config_namespaces)
             else:
                 blocks = [blocks]
         for block in blocks:
@@ -168,7 +217,7 @@ class BaseEnv():
         blocks = blocks or [self.simplecli_config]
         if not isinstance(blocks, list):
             if str(blocks).upper() == 'ALL':
-                blocks = vars(self._config_blocks)
+                blocks = vars(self._config_namespaces)
             else:
                 blocks = [blocks]
         for block in blocks:

@@ -1,5 +1,6 @@
 __author__ = 'clarkmatthew'
 
+import json
 
 
 class Namespace(object):
@@ -21,3 +22,9 @@ class Namespace(object):
                                                                  value,
                                                                  type(value))
                     raise
+
+    def _to_json(self):
+        return json.dumps(self,
+                          default=lambda o: o.__dict__,
+                          sort_keys=True,
+                          indent=4)

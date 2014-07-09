@@ -3,9 +3,11 @@ import sys
 from cmd import Cmd
 from traceback import print_exc
 from simplecli.baseenv import BaseEnv
+from collections import OrderedDict
 from inspect import isclass
 import termios
 import tty
+import re
 
 
 try:
@@ -65,6 +67,9 @@ class BaseMenu(Cmd, object):
         if 'colorama' in sys.modules:
             init()
 
+        self.stdout = stdout or env.default_output or sys.stdout
+        self.stdin = stdin or env.default_input or sys.stdin
+
         # Attempt to populate the command history from history file,
         # if it has not yet, and the file is provided and exists
         try:
@@ -76,12 +81,9 @@ class BaseMenu(Cmd, object):
         except ImportError:
             pass
         Cmd.__init__(self, completekey='tab', stdin=stdin, stdout=stdout)
+        self.stderr = stderr or env.default_error or sys.stderr
         if not self.name:
-            raise ValueError('Class must define "name"')
-        if stderr is None:
-            self.stderr = sys.stderr
-        else:
-            self.stderr = stderr
+            raise ValueError('Class must define "name", extend BaseEnv')
         assert isinstance(env, BaseEnv), "env variable must be of type BaseEnv"
         self.env = env
         self.prompt_method = prompt_method or env.simplecli_config.prompt_method
@@ -90,6 +92,7 @@ class BaseMenu(Cmd, object):
         self.path_from_home = path_from_home
         self._preflight_checks()
         self._init_submenus()
+        self._add_sub_menu(Config_Menu, 'CLI configuration utilities')
 
     def _preflight_checks(self):
         """
@@ -144,6 +147,82 @@ class BaseMenu(Cmd, object):
     def intro(self, intro):
         self._intro = intro
 
+    def _color(self, buf, color='BLUE'):
+        color = str(color).upper()
+        if 'colorama' in sys.modules:
+            color = getattr(Fore, color, "")
+            if not color:
+                return buf
+            lastchar = ''
+            if buf.endswith('\n'):
+                lastchar = '\n'
+                buf.rstrip('\n')
+            buf = '{0}{1}{2}{3}'.format(color,str(buf), lastchar, Fore.RESET)
+        return buf
+
+    def _get_terminal_size(self):
+        '''
+        Attempts to get terminal size. Currently only Linux.
+        returns (height, width)
+        '''
+        try:
+            # todo Add Windows support
+            import fcntl
+            import struct
+            return struct.unpack('hh', fcntl.ioctl(self.stdout,
+                                                   termios.TIOCGWINSZ,
+                                                   '1234'))
+        except:
+            return 80
+
+    def _init_plugin_menus(self):
+        plugins = self.env._get_plugins_for_parent(self.name)
+
+    def emptyline(self):
+        return
+
+    def default(self, args):
+        self.eprint('Command or syntax not recognized: "{0}"'.format(args))
+        return self.menu_summary(args)
+
+    def get_names(self):
+        names = dir(self.__class__)
+        for key in self.__dict__:
+            if not key in names:
+                names.append(key)
+        return names
+
+    def _add_doc_string(value):
+        def _doc(func):
+            func.__doc__ = value
+            return func
+        return _doc
+
+    @_add_doc_string(Cmd.do_help.im_func.func_doc)
+    def do_help(self, arg):
+        Cmd.do_help(self, arg)
+        if not arg:
+            self.menu_summary(arg)
+
+
+    def _add_sub_menu(self, menu, description=None):
+        assert isinstance(menu, BaseMenu) or issubclass(menu, BaseMenu), \
+            'Error adding sub menu, item is not BaseMenu type'
+        #Add a local method to load the menu
+        method_name = 'do_' + menu.name
+        #do_method = lambda args: self._load_menu(menu)
+        do_method = lambda line: self._sub_menu_handler(menu, line)
+        setattr(self, method_name, do_method)
+        new_method = getattr(self, method_name)
+        new_method.__doc__ = description or menu._summary or ""
+        new_method.__submenu__ = True
+        #Add completer method
+        complete_method_name = 'complete_' + menu.name
+        complete_method = lambda text, *ignore: self._sub_menu_complete(text,
+                                                                        menu)
+        setattr(self, complete_method_name, complete_method)
+
+
     def _init_submenus(self, menus=None):
         # Get the menus defined for this menu class
         menus = menus or self._submenus or []
@@ -164,70 +243,110 @@ class BaseMenu(Cmd, object):
                             .format(mname,
                                     str(ME)))
 
-    def _color(self, buf, color='BLUE'):
-        color = str(color).upper()
-        if 'colorama' in sys.modules:
-            color = getattr(Fore, color, "")
-            if not color:
-                return buf
-            lastchar = ''
-            if buf.endswith('\n'):
-                lastchar = '\n'
-                buf.rstrip('\n')
-            buf = '{0}{1}{2}{3}'.format(color,str(buf), lastchar, Fore.RESET)
-        return buf
-
-
-    def _get_terminal_size(self):
-        '''
-        Attempts to get terminal size. Currently only Linux.
-        returns (height, width)
-        '''
+    def _sub_menu_complete(self, text, menu):
+        ret = []
+        if isinstance(menu, BaseMenu):
+            menuclass = menu.__class__
+        elif isclass(menu):
+            menuclass = menu
+        else:
+            raise ValueError('menu is not BaseMenu type or class')
         try:
-            # todo Add Windows support
-            import fcntl
-            import struct
-            return struct.unpack('hh', fcntl.ioctl(self.stdout,
-                                                   termios.TIOCGWINSZ,
-                                                   '1234'))
+            menu = self.env.get_menu_by_class(menuclass=menuclass)
+            if not menu:
+                menu = menuclass(self.env)
+                self.env.menu_instances.append(menu)
+            assert isinstance(menu, BaseMenu)
+            menu_items = menu.completedefault(text, 0)
+            for item in menu_items:
+                if not hasattr(BaseMenu, 'do_' + item.strip()):
+                    ret.append(item)
         except:
-            return 80
+            print_exc()
+            raise
+        return ret
 
-    def _init_plugin_menus(self):
-        plugins = self.env._get_plugins_for_parent(self.name)
+    def _sub_menu_handler(self, menu, line):
+        if not line:
+            return self._load_menu(menu)
+        else:
+            if isinstance(menu, BaseMenu):
+                menuclass = menu.__class__
+            elif isclass(menu):
+                menuclass = menu
+            else:
+                raise ValueError('menu is not BaseMenu type or class')
+            try:
+                menu = self.env.get_menu_by_class(menuclass=menuclass)
+                if not menu:
+                    menu = menuclass(self.env)
+                    self.env.menu_instances.append(menu)
+                assert isinstance(menu, BaseMenu)
+                menu.path_from_home = self.path_from_home
+                return menu.onecmd(line)
+            except:
+                print_exc()
+                raise
 
-    def get_names(self):
-        names = dir(self.__class__)
-        for key in self.__dict__:
-            if not key in names:
-                names.append(key)
-        return names
+    def complete(self, text, state):
+        """Return the next possible completion for 'text'.
+        If a command has not been entered, then complete against command list.
+        Otherwise try to call complete_<command> to get list of completions.
+        """
+        if state == 0:
+            import readline
+            origline = readline.get_line_buffer()
+            line = origline.lstrip()
+            stripped = len(origline) - len(line)
+            begidx = readline.get_begidx() - stripped
+            endidx = readline.get_endidx() - stripped
+            if begidx>=0:
+                cmd, args, foo = self.parseline(line)
+                if not cmd:
+                    compfunc = self.completedefault
+                else:
+                    try:
+                        compfunc = getattr(self, 'complete_' + cmd)
+                    except AttributeError:
+                        compfunc = self.completedefault
+            else:
+                compfunc = self.completenames
+            self.completion_matches = compfunc(text, line, begidx, endidx)
+        try:
+            return self.completion_matches[state]
+        except IndexError:
+            return None
 
-    def _add_doc_string(value):
-        def _doc(func):
-            func.__doc__ = value
-            return func
-        return _doc
+    def completedefault(self, text, line=None, begidx=None, endidx=None):
+        if re.match(self.name + "\s+$", text):
+            text = ''
+        else:
+            try:
+                firstword = str(text).split()[0]
+            except IndexError:
+                firstword = None
+            if firstword:
+                complete_text = 'complete_' + firstword
+                complete_meth = getattr(self, complete_text, None)
+                if complete_meth:
+                    text = str(text).replace(firstword,'')
+                    try:
+                        return complete_meth(text, line, begidx, endidx)
+                    except:
+                        print_exc()
+                        raise
+        dotext = 'do_'+text
+        return [a[3:] + " " for a in self.get_names() if a.startswith(dotext)]
 
-    def _add_sub_menu(self, menu, description=None):
-        assert isinstance(menu, BaseMenu) or issubclass(menu, BaseMenu), \
-            'Error adding sub menu, item is not BaseMenu type'
-        #Add a local method to load the menu
-        method_name = 'do_' + menu.name
-        do_method = lambda args: self._load_menu(menu)
-        setattr(self, method_name, do_method)
-        new_method = getattr(self, method_name)
-        new_method.__doc__ = description or menu._summary or ""
-        new_method.__submenu__ = True
 
 
-    @_add_doc_string(Cmd.do_help.im_func.func_doc)
-    def do_help(self, arg):
-        Cmd.do_help(self, arg)
-        if not arg:
-            self.menu_summary(arg)
 
     def oprint(self, buf, allow_break=True):
+        '''
+        Helper function to print to the output (ie stdout) specififed
+        If page_break is set, this will also provide user interactive
+        scrolling based on the terminal size.
+        '''
         if allow_break and self.env.simplecli_config.page_break:
             height, width = self._get_terminal_size()
             lines = buf.splitlines()
@@ -239,7 +358,7 @@ class BaseMenu(Cmd, object):
                 length = length or line_cnt
                 y += length
                 if y >= line_cnt:
-                    y = line_cnt - 1
+                    y = line_cnt
                 for line in lines[x:y]:
                     self.stdout.write(str(line) + "\n")
                 self.stdout.flush()
@@ -247,6 +366,7 @@ class BaseMenu(Cmd, object):
                 if (y + 1) >= line_cnt:
                     return
                 else:
+                    #Handle the 'more' type scrolling function...
                     self.stdout.write(':\r')
                     self.stdout.flush()
                     fd = self.stdin.fileno()
@@ -256,7 +376,8 @@ class BaseMenu(Cmd, object):
                         ch = sys.stdin.read(1)
                     finally:
                         termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
-                    print '\b ',
+                    #print '\b ',
+                    self.stdout.write('\b')
                     ch = str(ch)
                     if ch == "\n" or ch == "\r" or ch == "":
                         length = height
@@ -264,9 +385,11 @@ class BaseMenu(Cmd, object):
                         length = 0
                     elif ch == "q":
                         print "\n"
+                        self.stdout.write('\n')
                         return
                     else:
                         length = 1
+                    self.stdout.flush()
         else:
             self.stdout.write(str(buf).rstrip("\n") + "\n")
             self.stdout.flush()
@@ -276,17 +399,9 @@ class BaseMenu(Cmd, object):
         self.stderr.write(str(buf).rstrip("\n") + "\n")
         self.stderr.flush()
 
-    def do_set_page_break(self, enable):
-        """
-        Enables/disables the global page break env var.
-        Usage set_page_break [on/off]
-        """
-        if int(enable):
-            self.env.simplecli_config.page_break = True
-        else:
-            self.env.simplecli_config.page_break = False
 
-    def do_sample_cmd(self, args):
+
+    def do_output_test(self, args):
         """
         Sample command for test purposes
 
@@ -294,8 +409,7 @@ class BaseMenu(Cmd, object):
         param x: arg to be printed to stdout
         param y: (optional) arg to be printed to stderr
         """
-        if not args:
-            raise CliError(None,'No Arguments provided to sample_cmd')
+        args = args or 'test_stdout test_stderr'
         args = str(args).split()
         self.oprint('This is printed to stdout:' + str(args.pop(0)))
         if args:
@@ -307,8 +421,10 @@ class BaseMenu(Cmd, object):
         if not self.env:
             buf = "\tNo env found?"
         else:
-            for key in self.env.simplecli_config.__dict__:
-                buf += "\t{0} -->  {1} \n".format(key, self.env.simplecli_config.__dict__[key])
+            for key in OrderedDict(
+                    sorted(self.env.simplecli_config.__dict__.items())):
+                buf += ("\t{0} -->  {1} \n"
+                        .format(key, self.env.simplecli_config.__dict__[key]))
         self.oprint(buf)
 
     def do_home(self, args):
@@ -343,12 +459,16 @@ class BaseMenu(Cmd, object):
         if path_from_home is None:
             path_from_home = self.path_from_home
         if isinstance(menu, BaseMenu):
+            if self.__class__ == menu.__class__:
+                    return
             menu.env = self.env
             menu.path_from_home = path_from_home
             menu._init_submenus()
         elif isclass(menu) and issubclass(menu, BaseMenu):
             existing_menu = self.env.get_menu_by_class(menu)
             if existing_menu:
+                if existing_menu.__class__ == self.__class__:
+                    return
                 menu = existing_menu
                 menu.path_from_home = path_from_home
                 menu._init_submenus()
@@ -364,12 +484,6 @@ class BaseMenu(Cmd, object):
         self.oprint(self._color('BLUE') + "**** {0} MENU ****"
                     .format(str(self.name)) + "\n")
 
-    def emptyline(self):
-        return
-
-    def default(self, args):
-        self.eprint('Command or syntax not recognized: "{0}"'.format(args))
-        return self.menu_summary(args)
 
     def do_clear(self, args):
         """
@@ -386,6 +500,7 @@ class BaseMenu(Cmd, object):
         names = self.get_names()
         menu_items = []
         maxlen = 0
+        #Sort out methods that begin with 'do_' as menu items...
         for name in names:
             if name[:3] == 'do_':
                 if name == prevname:
@@ -394,6 +509,7 @@ class BaseMenu(Cmd, object):
                 if len(name[3:]) > maxlen:
                     maxlen = len(name[3:])
                 menu_items.append(name)
+        #Sort out menu items into: submenus, local commands, and globals
         for name in menu_items:
             cmd = str(name[3:])
             cmd_method = getattr(self, name)
@@ -436,14 +552,21 @@ class BaseMenu(Cmd, object):
 
         return Cmd.parseline(self, line)
 
-    def do_show_config(self, args):
-        self.oprint(self.env.get_formatted_conf())
+    def get_submenu(self, submenu):
+        if isinstance(submenu, str):
+            print 'Looking up submenu by name:' + str(submenu)
+            name = submenu
+            for menu in self._submenus:
+                if getattr(menu, 'name', "") == name:
+                    return menu
+        elif isclass(submenu):
+            print 'Looking up submenu by class:' + str(submenu)
+            for menu in self._submenus:
+                print 'looking at menu:' + str(menu.name)
+                if isinstance(menu, submenu):
+                    return menu
+        return None
 
-    def do_show_config_diff(self, args):
-        self.oprint(self.env.get_config_diff())
-
-    def do_saveall(self, args):
-        return self.env.save_all()
 
     def do_quit(self, args):
         """Quits the program."""
@@ -468,4 +591,45 @@ class BaseMenu(Cmd, object):
         except ImportError:
             pass
         raise SystemExit
+
+class Config_Menu(BaseMenu):
+    name = 'config_menu'
+    _summary = 'SimpleCLI Configuration Menu'
+    _description = 'SimpleCLI Configuration Menu'
+    _intro = 'SimpleCLI Configuration Menu'
+
+
+    def do_show_config(self, args):
+        args = args or 'all'
+        self.oprint(self.env.get_formatted_conf())
+
+    def help_show_config(self):
+        buf = 'Show values for the following sections:\n\t"all"(default)\n'
+        for block in self.env._config_blocks:
+            buf += '\t"{0}"\n'.format(block.name)
+        self.oprint(buf)
+
+    def do_show_diff(self, args):
+        self.oprint(self.env.get_config_diff())
+
+    def do_save_config(self, args):
+        return self.env.save_config()
+
+    def do_set_page_break(self, enable):
+        """
+        Enables/disables the global page break env var.
+        Usage set_page_break [on/off]
+        """
+        try:
+            enable = int(enable)
+        except ValueError:
+            if 'on' in enable:
+                enable = 1
+            else:
+                enable = 0
+        if int(enable):
+            self.env.simplecli_config.page_break = True
+        else:
+            self.env.simplecli_config.page_break = False
+
 

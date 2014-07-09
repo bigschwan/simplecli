@@ -5,8 +5,8 @@ import os
 from namespace import Namespace
 import json
 from pprint import pformat
+from shutil import copyfile
 import difflib
-import pickle
 
 
 class Config(Namespace):
@@ -28,17 +28,6 @@ class Config(Namespace):
         self.config_file_path = config_file_path
         self.name = name or os.path.basename(self.config_file_path).split('.')[0]
         self._update_from_file()
-
-    def _update_from_pickle_file(self, file_path=None):
-        file_path = file_path or self.config_file_path
-        if os.path.exists(file_path) and os.path.getsize(file_path):
-            if not os.path.isfile(file_path):
-                raise ValueError('config file exists at path and is not '
-                                 'a file:' + str(file_path))
-            loadfile = open(file_path, 'rb')
-            with loadfile:
-                newobj = pickle.load(file=loadfile)
-            self.__dict__.update(newobj.__dict__)
 
 
     def _update_from_file(self, file_path=None):
@@ -72,13 +61,12 @@ class Config(Namespace):
         Will return a formatted string to show the difference
         '''
         #Create formatted string representation of dict values
-        self_dict = OrderedDict(sorted(vars(self).items()))
-        text1 = json.dumps(self_dict, indent=4).splitlines()
+        self_dict = vars(self)
+        text1 = json.dumps(self_dict, sort_keys=True, indent=4).splitlines()
         #Create formatted string representation of values in file
         file_path = file_path or self.config_file_path
         file_dict = self._get_dict_from_file(file_path=file_path) or {}
-        file_dict = OrderedDict(sorted(file_dict.items()))
-        text2 = json.dumps(file_dict, indent=4).splitlines()
+        text2 = json.dumps(file_dict, sort_keys=True, indent=4).splitlines()
         diff = difflib.unified_diff(text1, text2, lineterm='')
         return '\n'.join(diff)
 
@@ -90,19 +78,19 @@ class Config(Namespace):
             dict = self._get_dict_from_file(self.config_file_path)
             return pformat(dict)
 
-    def _save_pickle(self, path=None):
-        path = path or self.config_file_path
-        savefile = open(path, 'wb')
-        with savefile:
-            pickle.dump(self, file=savefile, protocol=2)
-
     def _save(self, path=None):
         path = path or self.config_file_path
+        backup_path = path + '.bak'
         config_json = json.dumps(vars(self), indent=4)
-        savefile = file(path,"w")
-        with savefile:
-            savefile.write(config_json)
-            savefile.flush()
+        if os.path.isfile(path):
+            copyfile(path, backup_path)
+        save_file = file(path, "w")
+        with save_file:
+            save_file.write(config_json)
+            save_file.flush()
+
+    def _get_keys(self):
+        return vars(self).keys()
 
 
 
