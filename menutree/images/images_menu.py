@@ -3,6 +3,7 @@ __author__ = 'clarkmatthew'
 
 from simplecli.basemenu import BaseMenu, CliError
 from simplecli.namespace import Namespace
+from simplecli.config import Config
 import os
 import json
 import re
@@ -17,8 +18,26 @@ class Images_Menu(BaseMenu):
     name = 'images_menu'
     _summary = 'Image Utilities Menu'
     _submenus = []
-    _catalog_url = "http://emis.eucalyptus.com/catalog"
-    _fast_emi_script_url = "eucalyptus.com/install-emis"
+    #_catalog_url = "http://emis.eucalyptus.com/catalog"
+    #_fast_emi_script_url = "eucalyptus.com/install-emis"
+
+    def _setup(self):
+        try:
+            config = self.env.get_config_from_namespace(namespace_name='main',
+                                                        config_name='images')
+        except ValueError:
+            config = None
+        if not config:
+            config = Config(config_file_path=self.env.simplecli_config_file,
+                            name='images')
+            config.catalog_url = "http://emis.eucalyptus.com/catalog"
+            config.fast_emi_script_url = "eucalyptus.com/install-emis"
+            config._update_from_file()
+            self.env.add_config_to_namespace(namespace_name='main',
+                                             config=config,
+                                             create=True)
+        self._catalog_url = config.catalog_url
+        self._fast_emi_script_url = config.fast_emi_script_url
 
     def do_install_quick_image(self, args):
         """

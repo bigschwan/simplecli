@@ -1,10 +1,11 @@
 __author__ = 'clarkmatthew'
 
+import difflib
 import os
 import sys
 import imp
 from namespace import Namespace
-from pprint import pformat
+from simplecli import get_dict_from_file
 from config import Config
 from shutil import copyfile
 import json
@@ -66,7 +67,7 @@ class BaseEnv():
         simplecli.default_username = None
         simplecli.default_password = None
         simplecli.user_name = None
-        simplecli.debug = True
+        simplecli.debug = False
         simplecli.history_file = os.path.join(self.base_dir, 'history')
         simplecli.page_break = True
         simplecli.plugin_dir = None
@@ -158,6 +159,11 @@ class BaseEnv():
             save_file.flush()
 
     def _load_plugin_menus(self):
+        '''
+        Loads plugin menus found either in the provided plugin directory
+        or the current working dir. Will attempt to load files starting
+        with 'menu'. See plugin examples for more info.
+        '''
         self.plugin_menus = []
         plugin_dir = self.simplecli_config.plugin_dir or os.path.curdir
         for file in os.listdir(plugin_dir):
@@ -188,51 +194,41 @@ class BaseEnv():
                 self.plugin_menus.append(plugin)
 
     def get_menu_by_class(self, menuclass, list=None):
-        #clean up class from module prefix
-        #menuclass = str(menuclass).split('.').pop()
+        '''
+        Returns a loaded menu instance matching the provided class.
+        '''
         list = list or self.menu_instances
         for item in self.menu_instances:
             if item.__class__ == menuclass:
                 return item
         return None
 
-    def get_formatted_conf(self, blocks=None):
+    def get_formatted_conf(self, block=None):
+        '''
+        Returns a json representation of the current configuration.
+        '''
         ret_buf = ""
-        blocks = blocks or [self.simplecli_config]
-        if not isinstance(blocks, list):
-            if str(blocks).upper() == 'ALL':
-                blocks = vars(self._config_namespaces)
-            else:
-                blocks = [blocks]
-        for block in blocks:
-            if not isinstance(block, Config):
-                block = self.get_config_block(block)
-                if not block:
-                    raise ValueError('Could not find config for:' + str(block))
-            ret_buf += pformat(vars(block))
+        if not block:
+            namespace = self._config_namespaces
+        else:
+            namespace = self.get_namespace(block, create=False)
+        if namespace:
+            ret_buf = namespace._to_json()
         return ret_buf
 
-    def get_config_diff(self, blocks=None, headers=True):
-        ret_buf = ""
-        blocks = blocks or [self.simplecli_config]
-        if not isinstance(blocks, list):
-            if str(blocks).upper() == 'ALL':
-                blocks = vars(self._config_namespaces)
-            else:
-                blocks = [blocks]
-        for block in blocks:
-            if not isinstance(block, Config):
-                block = self.get_config_block(block)
-                if not block:
-                    raise ValueError('Could not find config for:' + str(block))
-            config_diff = block._diff()
-            if config_diff:
-                if headers:
-                    ret_buf += '---NAME:"{0}, FILE:{1}" ---\n'\
-                        .format(block.name, block.config_file_path)
-                ret_buf += config_diff
-        return ret_buf
-
+    def get_config_diff(self, file_path=None):
+        '''
+        Method to show current values vs those (saved) in a file.
+        Will return a formatted string to show the difference
+        '''
+        #Create formatted string representation of dict values
+        text1 = self._config_namespaces._to_json().splitlines()
+        #Create formatted string representation of values in file
+        file_path = file_path or self.simplecli_config_file
+        file_dict = get_dict_from_file(file_path=file_path) or {}
+        text2 = json.dumps(file_dict, sort_keys=True, indent=4).splitlines()
+        diff = difflib.unified_diff(text2, text1, lineterm='')
+        return '\n'.join(diff)
 
     def get_menu_by_name(self, name, list=None):
         list = list or self.menu_instances
@@ -242,6 +238,10 @@ class BaseEnv():
         return None
 
     def _get_plugins_for_parent(self, parent):
+        '''
+        convience method to find and return plugin menus to be loaded under
+        the provided 'parent' menu.
+        '''
         plugins = []
         try:
             parent_class = parent.__class__.__name__

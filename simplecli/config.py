@@ -3,6 +3,7 @@ __author__ = 'clarkmatthew'
 from collections import OrderedDict
 import os
 from namespace import Namespace
+from simplecli import  get_dict_from_file
 import json
 from pprint import pformat
 from shutil import copyfile
@@ -37,23 +38,9 @@ class Config(Namespace):
             self.__dict__.update(newdict)
 
     def _get_dict_from_file(self, file_path=None):
-        newdict = None
         file_path = file_path or self.config_file_path
-        if os.path.exists(file_path) and os.path.getsize(file_path):
-            if not os.path.isfile(file_path):
-                raise ValueError('config file exists at path and is not '
-                                 'a file:' + str(file_path))
-            conf_file = open(file_path, 'rb')
-            with conf_file:
-                data = conf_file.read()
-            if data:
-                try:
-                    newdict = json.loads(data)
-                except ValueError as ve:
-                    ve.args = (['Failed to load json config from: "{0}". '
-                                'ERR: "{1}"'.format(file_path, ve.message)])
-                    raise
-        return newdict
+        return get_dict_from_file(file_path)
+
 
     def _diff(self, file_path=None):
         '''
