@@ -64,9 +64,6 @@ class BaseEnv():
     def init_simplecli_config(self):
         simplecli = Config(config_file_path=self.simplecli_config_file,
                            name='simplecli')
-        simplecli.default_username = None
-        simplecli.default_password = None
-        simplecli.user_name = None
         simplecli.debug = False
         simplecli.history_file = os.path.join(self.base_dir, 'history')
         simplecli.page_break = True
@@ -79,7 +76,7 @@ class BaseEnv():
                                        # construct menu prompts
         simplecli.path_delimeter = ">" # Used for constructing the default
                                        # prompt and displayed path string(s)
-        simplecli._update_from_file()
+        simplecli._update_from_file(markers=['main'])
         self.add_config_to_namespace(namespace_name='main',
                                      config=simplecli,
                                      create=True)
@@ -106,6 +103,9 @@ class BaseEnv():
         If not found and 'create == True' then a new namespace obj will be
         created, added to self._config_namespaces and returned.
         '''
+        if not isinstance(name, basestring):
+            raise ValueError('Bad value passed for "name" to get_namespace, got:"{0}/{1}"'
+                             .format(name, type(name)))
         namespace = getattr(self._config_namespaces, name, None)
         if not namespace and create:
             namespace = self.add_namespace(name)

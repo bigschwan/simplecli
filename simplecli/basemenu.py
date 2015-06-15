@@ -1,3 +1,4 @@
+import json
 import os
 import sys
 from cmd import Cmd
@@ -77,11 +78,13 @@ class BaseMenu(Cmd, object):
         # Attempt to populate the command history from history file,
         # if it has not yet, and the file is provided and exists
         try:
-            if not readline.get_history_length():
-                history_path = getattr(env, 'history_path', None)
+            history_len = readline.get_history_length()
+            if history_len < 1:
+                history_path = getattr(env.simplecli_config, 'history_file', None)
                 if history_path and os.path.exists(history_path):
-                        readline.read_history_file(history_path)
-        except ImportError:
+                    readline.read_history_file(history_path)
+        except ImportError as IE:
+            self.eprint('Failed to read in history file, err:{0}'.format(IE))
             pass
         Cmd.__init__(self, completekey='tab', stdin=stdin, stdout=stdout)
         self.stderr = stderr or env.default_error or sys.stderr
@@ -243,11 +246,12 @@ class BaseMenu(Cmd, object):
         # Add completer method to handle presenting the sub-contexts of each
         # Sub menu based on the completion strings
         complete_method_name = 'complete_' + menu.name
-        complete_method = lambda text, line, begidx, endidx: self._sub_menu_complete(text,
-                                                                        menu,
-                                                                        line,
-                                                                        begidx,
-                                                                        endidx)
+        complete_method = \
+            lambda text, line, begidx, endidx: self._sub_menu_complete(text,
+                                                                       menu,
+                                                                       line,
+                                                                       begidx,
+                                                                       endidx)
         setattr(self, complete_method_name, complete_method)
 
 
@@ -280,7 +284,8 @@ class BaseMenu(Cmd, object):
         menu context should be loaded, or if a command in the chain of
         submenus should be instead executed.
         '''
-        self.dprint('\n submenu_handler. menu:{0}, line:"{1}"'.format(menu.name, line))
+        self.dprint('\n submenu_handler. menu:{0}, line:"{1}"'
+                    .format(menu.name, line))
         if not line:
             return self._load_menu(menu)
         else:
@@ -296,7 +301,8 @@ class BaseMenu(Cmd, object):
                     menu = menuclass(self.env)
                     self.env.menu_instances.append(menu)
                 assert isinstance(menu, BaseMenu)
-                self.dprint('Running cmd:"{0}" , with menu:{1}'.format(line, menu.name))
+                self.dprint('Running cmd:"{0}" , with menu:{1}'
+                            .format(line, menu.name))
                 cmd_attr = getattr(menu, 'do_' + line, None)
                 # If a new submenu is being loaded, update the prompts path
                 if cmd_attr and hasattr(cmd_attr,'__submenu__'):
@@ -312,7 +318,8 @@ class BaseMenu(Cmd, object):
         complete and see the items in the chain of submenus.
         '''
 
-        self.dprint('sub_menu_complete(). self:{0}, menu:{1}, text:"{2}", line:"{3}"'.format(self.name, menu.name, text, line))
+        self.dprint('sub_menu_complete(). self:{0}, menu:{1}, text:"{2}", '
+                    'line:"{3}"'.format(self.name, menu.name, text, line))
         ret = []
         if isinstance(menu, BaseMenu):
             menuclass = menu.__class__
@@ -326,7 +333,8 @@ class BaseMenu(Cmd, object):
                 menu = menuclass(self.env)
                 self.env.menu_instances.append(menu)
             assert isinstance(menu, BaseMenu)
-            self.dprint('sub_menu_complete() getting menu items from {0}.completeddefault()'.format(menu.name))
+            self.dprint('sub_menu_complete() getting menu items from '
+                        '{0}.completeddefault()'.format(menu.name))
             menu_items = menu.completedefault(text, line, begidx, endidx)
             for item in menu_items:
                 if not hasattr(BaseMenu, 'do_' + item.strip()):
@@ -342,7 +350,8 @@ class BaseMenu(Cmd, object):
         If a command has not been entered, then complete against command list.
         Otherwise try to call complete_<command> to get list of completions.
         """
-        self.dprint('Complete()1: menu:"{0}", text:"{1}", state:"{2}"'.format(self.name, text, state))
+        self.dprint('Complete()1: menu:"{0}", text:"{1}", state:"{2}"'
+                    .format(self.name, text, state))
         if state == 0:
             import readline
             origline = readline.get_line_buffer()
@@ -354,17 +363,20 @@ class BaseMenu(Cmd, object):
             if begidx>=0:
                 cmd, args, foo = self.parseline(line)
                 if not cmd:
-                    self.dprint('Complete()3: no cmd after parseline(), sending to default()')
+                    self.dprint('Complete()3: no cmd after parseline(), '
+                                'sending to default()')
                     compfunc = self.completedefault
                 else:
                     try:
                         compfunc = getattr(self, 'complete_' + cmd)
                         self.dprint('Complete()4: got method complete_' + str(cmd))
                     except AttributeError:
-                        self.dprint('Complete()5: no complete_ method found, sending to default()')
+                        self.dprint('Complete()5: no complete_ method '
+                                    'found, sending to default()')
                         compfunc = self.completedefault
             else:
-                self.dprint('Complete()2: non-zero state sending to completenames(), state:{0}'.format(state))
+                self.dprint('Complete()2: non-zero state sending to '
+                            'completenames(), state:{0}'.format(state))
                 compfunc = self.completenames
             try:
                 self.completion_matches = compfunc(text, line, begidx, endidx)
@@ -382,7 +394,9 @@ class BaseMenu(Cmd, object):
         local complete ('complete_') or execute('do_') methods to be used
         in the chain of submenu contexts
         '''
-        self.dprint('default(). menu:{0}, text:{1}, line:"{2}", beg:{3}, end{4}'.format(self.name, text, line, begidx, endidx ))
+        self.dprint('default(). menu:{0}, text:{1}, line:"{2}", '
+                    'beg:{3}, end{4}'
+                    .format(self.name, text, line, begidx, endidx ))
         # See if this is in the process of completing a word or line
         if not text and begidx is not None and endidx is not None:
             if begidx == endidx:
@@ -390,7 +404,8 @@ class BaseMenu(Cmd, object):
         text = (text or '').lstrip()
         # See if this is being handled by a submenu and the local menu name
         # needs to be removed...
-        self.dprint('default(). Looking regex: re.search("^{0}\s*$", {1})'.format(self.name, text))
+        self.dprint('default(). Looking regex: re.search("^{0}\s*$", {1})'
+                    .format(self.name, text))
         text = re.sub('^' + self.name + '\s*', '', text)
         self.dprint('default() text after replace:"{0}"'.format(text))
         line = text
@@ -414,7 +429,8 @@ class BaseMenu(Cmd, object):
                 except:
                     print_exc()
                     raise
-        self.dprint('default() returning {0}.get_names() for matching:{1}'.format(self.name, 'do_'+ str(text)))
+        self.dprint('default() returning {0}.get_names() for matching:{1}'
+                    .format(self.name, 'do_'+ str(text)))
         dotext = 'do_' + str(text)
         return [a[3:] + " " for a in self.get_names() if a.startswith(dotext)]
 
@@ -498,16 +514,14 @@ class BaseMenu(Cmd, object):
         if args:
             self.eprint('This is printed to stderr:' + str(args.pop(0)))
 
-    def do_show_cli_env(self, args):
+    def do_cli_env(self, args):
         """show current cli environment variables"""
-        buf = "\tpath_from_home -->  {0} \n".format(",".join(x.name for x in self.path_from_home))
+        buf = ("\tpath_from_home -->  {0} \n"
+               .format(",".join(x.name for x in self.path_from_home)))
         if not self.env:
             buf = "\tNo env found?"
         else:
-            for key in OrderedDict(
-                    sorted(self.env.simplecli_config.__dict__.items())):
-                buf += ("\t{0} -->  {1} \n"
-                        .format(key, self.env.simplecli_config.__dict__[key]))
+            buf = json.dumps(self.env.simplecli_config.__dict__, sort_keys=True, indent=4)
         self.oprint(buf)
 
     def do_home(self, args):
@@ -652,8 +666,10 @@ class BaseMenu(Cmd, object):
                     return menu
         return None
 
+    def do_exit(self, args, force=True, status=0):
+        return self.do_quit(args=args, force=force, status=status)
 
-    def do_quit(self, args, force=False, status=0):
+    def do_quit(self, args, force=True, status=0):
         """Quits the program."""
         self.oprint("Quitting.")
         if 'force' in str(args).lower():
@@ -671,7 +687,7 @@ class BaseMenu(Cmd, object):
                     return
         try:
             import readline
-            history_path = getattr(self.env, 'history_file', None)
+            history_path = getattr(self.env.simplecli_config, 'history_file', None)
             if history_path:
                 if not os.path.exists(history_path):
                     open(history_path, 'w').close()
@@ -694,18 +710,45 @@ class Config_Menu(BaseMenu):
     _description = 'SimpleCLI Configuration Menu'
     _intro = 'SimpleCLI Configuration Menu'
 
+    @property
+    def config(self):
+        return self.env.simplecli_config
 
-    def do_show_config(self, configblock):
+    def do_show(self, text):
+        if text:
+            text = text.strip()
+            text = re.sub("^show\s*", '', text)
+            if text:
+                words = text.split()
+                nextword = words[0]
+                showmethod = getattr(self, 'show_' + str(nextword), None)
+                if showmethod:
+                   return showmethod(words[1:])
+        return self.help_show()
+
+    def help_show(self, *args):
+        match = 'show_'
+        showlist = [a[5:] + " " for a in self.get_names() if a.startswith(match)]
+        self.oprint('Available show commands:\n{0}'.format("\n\t".join(showlist)))
+
+    def complete_show(self, text, *ignore):
+        text = re.sub("^show\s*", '', text)
+        complete_method = getattr(self, 'show_' + text, None)
+        if complete_method:
+            return complete_method(text, ignore)
+        match = 'show_' + str(text)
+        return [a[5:] + " " for a in self.get_names() if a.startswith(match)]
+
+    def show_stuff(self, args):
+        print 'you got stuff'
+
+
+    def show_config(self, configblock):
         configblock = configblock or None
         self.oprint(self.env.get_formatted_conf(block=configblock))
 
-    def help_show_config(self):
-        buf = 'Show values for the following sections:\n\t"all"(default)\n'
-        for block in self.env._config_blocks:
-            buf += '\t"{0}"\n'.format(block.name)
-        self.oprint(buf)
 
-    def do_show_diff(self, args):
+    def show_diff(self, args):
         self.oprint(self.env.get_config_diff())
 
     def do_save_config(self, args):

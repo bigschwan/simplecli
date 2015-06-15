@@ -32,7 +32,7 @@ class Images_Menu(BaseMenu):
                             name='images')
             config.catalog_url = "http://emis.eucalyptus.com/catalog"
             config.fast_emi_script_url = "eucalyptus.com/install-emis"
-            config._update_from_file()
+            config._update_from_file(markers=['main'])
             self.env.add_config_to_namespace(namespace_name='main',
                                              config=config,
                                              create=True)
@@ -82,7 +82,7 @@ class Images_Menu(BaseMenu):
         else:
             r = requests.get("http://emis.eucalyptus.com")
             buf = ""
-            doc = html2text.html2text(r.text)
+            doc = html2text.html2text(r.text.encode('ascii', 'ignore').decode('ascii'))
             for line in doc.splitlines():
                 line = str(line)
                 if line.startswith('#'):

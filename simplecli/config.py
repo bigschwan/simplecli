@@ -31,10 +31,20 @@ class Config(Namespace):
         self._update_from_file()
 
 
-    def _update_from_file(self, file_path=None):
+    def _update_from_file(self, file_path=None, markers=None):
+        if markers is None:
+            markers = [self.name]
+        if not isinstance(markers, list):
+            markers = [markers]
+        if self.name not in markers:
+            markers.append(self.name)
         file_path = file_path or self.config_file_path
         newdict = self._get_dict_from_file(file_path=file_path)
         if newdict:
+            for marker in markers:
+                newdict = newdict.get(marker, {})
+                if not newdict:
+                    return
             self.__dict__.update(newdict)
 
     def _get_dict_from_file(self, file_path=None):
