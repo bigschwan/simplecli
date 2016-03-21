@@ -132,7 +132,7 @@ class BaseMenu(Cmd, object):
     def _completer_display(self, substitution, matches, longest_match_length):
 
         try:
-
+            line = readline.get_line_buffer()
             height, width = self._get_terminal_size()
             columns = int((width - 12) / longest_match_length) or 1
             column_width = longest_match_length
@@ -184,16 +184,13 @@ class BaseMenu(Cmd, object):
             if cmd_count:
                 cmd_pt.add_row(cmds)
 
-            if self.debug:
-                self.do_cli_env(None)
-                line = readline.get_line_buffer()
-                self.dprint("Completer_display():\t\nsubstitution:{0}\t\nmatches:{1}"
-                            "\t\nlongest_match_length:{2}\t\nlen total:{3}\t\nline:{4}"
-                            "\t\nsubtype:{5}\t\ntotal:{6}\t\nsubstitution:{7}\t\ncolumns:{8}\t\n"
-                            "column width:{9}\t\n"
-                            .format(substitution, matches, longest_match_length, len(total), line,
-                                    type(substitution), total, substitution, columns,
-                                    column_width))
+            self.dprint("Completer_display():\t\nsubstitution:{0}\t\nmatches:{1}"
+                        "\t\nlongest_match_length:{2}\t\nlen total:{3}\t\nline:{4}"
+                        "\t\nsubtype:{5}\t\ntotal:{6}\t\nsubstitution:{7}\t\ncolumns:{8}\t\n"
+                        "column width:{9}\t\n"
+                        .format(substitution, matches, longest_match_length, len(total), line,
+                                type(substitution), total, substitution, columns,
+                                column_width))
 
             self.stdout.seek(0)
             self.stdout.write("")
@@ -204,8 +201,9 @@ class BaseMenu(Cmd, object):
                 buf += "\n{0}".format(blue(menu_pt))
             if cmd_pt:
                 buf += "\n{0}".format(yellow(cmd_pt))
-
             self.oprint(buf)
+            if (substitution or "").strip() != (line or "").strip():
+                substitution = line.strip()
 
             if len(matches) == 1:
                 cli_text = "{0}{1}".format(self.prompt, matches[0])
@@ -323,7 +321,8 @@ class BaseMenu(Cmd, object):
         return line
 
     def default(self, args):
-        self.eprint('Command or syntax not recognized: "{0}"'.format(args))
+        if str(args).strip() != "?":
+            self.eprint('Command or syntax not recognized: "{0}"'.format(args))
         return self.menu_summary(args)
 
     def get_names(self):
@@ -417,7 +416,7 @@ class BaseMenu(Cmd, object):
         menu context should be loaded, or if a command in the chain of
         submenus should be instead executed.
         '''
-        self.dprint('\n submenu_handler. menu:{0}, line:"{1}"'
+        self.dprint('_submenu_handler(). menu:{0}, line:"{1}"'
                     .format(menu.name, line))
         if not line:
             return self._load_menu(menu)
@@ -429,10 +428,15 @@ class BaseMenu(Cmd, object):
             else:
                 raise ValueError('menu is not BaseMenu type or class')
             try:
-                menu = self.env.get_menu_by_class(menuclass=menuclass)
+                menu = self.env.get_cached_menu_by_class(menuclass=menuclass)
                 if not menu:
+                    self.dprint('_sub_menu_handler():Creating menu instance of class:{0}'
+                                .format(menuclass))
                     menu = menuclass(self.env)
                     self.env.menu_cache.append(menu)
+                else:
+                    self.dprint('_sub_menu_handler(): found cached instance of class:{0}'
+                                .format(menuclass))
                 assert isinstance(menu, BaseMenu)
                 self.dprint('Running cmd:"{0}" , with menu:{1}'
                             .format(line, menu.name))
@@ -461,7 +465,7 @@ class BaseMenu(Cmd, object):
         else:
             raise ValueError('menu is not BaseMenu type or class')
         try:
-            menu = self.env.get_menu_by_class(menuclass=menuclass)
+            menu = self.env.get_cached_menu_by_class(menuclass=menuclass)
             if not menu:
                 menu = menuclass(self.env)
                 self.env.menu_cache.append(menu)
@@ -701,13 +705,13 @@ class BaseMenu(Cmd, object):
                             path_from_home=self.path_from_home)
 
     def _load_menu(self, menu, path_from_home=None):
-        self.dprint('load_menu():\n\tmenu:{0}\n\tpath from home:{1}'
+        self.dprint('_load_menu():\n\tmenu:{0}\n\tpath from home:{1}'
                     '\n\tself.path_from_home{2}'
                     .format(menu, path_from_home, self.path_from_home))
         if path_from_home is None:
             path_from_home = self.path_from_home
         if isinstance(menu, BaseMenu):
-            self.dprint('load_menu: got menu INSTANCE: "{0}"'.format(menu.__class__.__name__))
+            self.dprint('_load_menu(): got menu INSTANCE: "{0}"'.format(menu.__class__.__name__))
             if self.__class__ == menu.__class__:
                     return
             menu.env = self.env
@@ -715,8 +719,8 @@ class BaseMenu(Cmd, object):
             menu.path_from_home = path_from_home
             menu._init_submenus()
         elif isclass(menu) and issubclass(menu, BaseMenu):
-            self.dprint('load_menu: got menu CLASS: "{0}"'.format(menu))
-            existing_menu = self.env.get_menu_by_class(menu)
+            self.dprint('_load_menu(): got menu CLASS: "{0}"'.format(menu))
+            existing_menu = self.env.get_cached_menu_by_class(menu)
             if existing_menu:
                 if existing_menu.__class__ == self.__class__:
                     return
@@ -724,6 +728,7 @@ class BaseMenu(Cmd, object):
                 menu.path_from_home = path_from_home
                 menu._init_submenus()
             else:
+                self.dprint('_load_menu():Creating menu instance of class:{0}'.format(menu))
                 menu = menu(self.env,
                             path_from_home=path_from_home)
                 self.env.menu_cache.append(menu)
@@ -746,9 +751,7 @@ class BaseMenu(Cmd, object):
 
     def menu_summary(self, args):
         """Prints Summary of commands and sub-menu items"""
-        submenus = ""
-        basecommands = ""
-        commands = ""
+        menu_color = [1, 4, 34] #  bold, underlined, blue
         prevname = None
         names = self.get_names()
         menu_items = []
@@ -780,15 +783,26 @@ class BaseMenu(Cmd, object):
             doc = str(cmd_method.__doc__) or ''
             doc = doc.lstrip().splitlines()[0].strip()
             if hasattr(cmd_method,'__submenu__'):
-                sub_pt.add_row([blue("\t{0}".format(cmd), bold=False), doc])
-            elif hasattr(BaseMenu, name):
-                base_pt.add_row([yellow("\t{0}".format(cmd), bold=False), doc])
+                if hasattr(BaseMenu, name):
+                    base_pt.add_row(["\t{0}".format(markup(cmd, markups=menu_color)),
+                                     markup(doc, markups=menu_color)])
+                else:
+                    current_pt.add_row(["\t{0}".format(markup(cmd, markups=menu_color)),
+                                        markup(doc, markups=menu_color)])
             else:
-                current_pt.add_row([green("\t{0}".format(cmd), bold=True), doc])
-        buf = "{0}\n{1}\n{2}\n{3}\n{4}\n{5}".format(
-            cyan('*** ' + self.name.upper() + ' COMMANDS ***', bold=True), current_pt,
-            cyan('*** SUB MENUS ***', bold=True), sub_pt,
-            cyan('*** BASE COMMANDS ***', bold=True), base_pt)
+                if hasattr(BaseMenu, name):
+                    base_pt.add_row(["\t{0}".format(yellow(cmd, bold=True)), doc])
+                else:
+                    current_pt.add_row(["\t{0}".format(yellow(cmd, bold=True)), doc])
+        buf = "{0}\n".format(cyan('*** ' + self.name.upper() + ' OPTIONS ***', bold=True))
+        if current_pt._rows:
+            # Add blank line for formatting, separate menu items from commands
+            #current_pt.add_row(["\t{0}".format(yellow(" ", bold=True)), ""])
+            buf += "{0}\n".format(current_pt.get_string(sortby='COMMAND'))
+        if sub_pt._rows:
+            buf += "{0}\n".format(sub_pt)
+        if base_pt._rows:
+            buf += "{0}\n{1}\n".format(cyan('*** BASE COMMANDS ***', bold=True), base_pt)
         main_pt.add_row([buf])
         self.oprint("{0}".format(main_pt))
 
@@ -812,15 +826,12 @@ class BaseMenu(Cmd, object):
 
     def get_submenu(self, submenu):
         if isinstance(submenu, str):
-            print 'Looking up submenu by name:' + str(submenu)
             name = submenu
             for menu in self._submenus:
                 if getattr(menu, 'name', "") == name:
                     return menu
         elif isclass(submenu):
-            print 'Looking up submenu by class:' + str(submenu)
             for menu in self._submenus:
-                print 'looking at menu:' + str(menu.name)
                 if isinstance(menu, submenu):
                     return menu
         return None
@@ -932,7 +943,7 @@ class Setup_Menu(BaseMenu):
     def do_set_debug(self, enable):
         """
         Enables/disables the global debug env var.
-        Usage set_page_break [on/off]
+        Usage set_debug [on/off]
         """
         enable = str(enable).lower().strip()
         if enable != 'on' and enable != 'off':

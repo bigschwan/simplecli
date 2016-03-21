@@ -193,7 +193,7 @@ class BaseEnv():
                                          'example for info.'
                                          .format(full_path))
                 plugin = menuclass(env=self)
-                existing_menu = self.get_menu_by_class(plugin.__class__)
+                existing_menu = self.get_cached_menu_by_class(plugin.__class__)
                 if existing_menu:
                     raise RuntimeError('Duplicate Menu Classes found while'
                                        'loading plugins: class:"{0}", '
@@ -207,7 +207,7 @@ class BaseEnv():
                     plugin._parents = parent_menus
                 self.plugin_menus.append(plugin)
 
-    def get_menu_by_class(self, menuclass, list=None):
+    def get_cached_menu_by_class(self, menuclass, list=None):
         '''
         Returns a loaded menu instance matching the provided class.
         '''
