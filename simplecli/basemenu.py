@@ -72,7 +72,7 @@ class BaseMenu(Cmd, object):
                  stderr=None):
         # Note super does not work as Cmd() is an 'old style' class which
         # does not inherit from object(). Instead call init directly.
-        self._submenu_names = None
+        #self._submenu_names = None
         self._last_keyboard_interupt = 0
         signal.signal(signal.SIGINT, self._keyboard_interupt_handler)
         if 'colorama' in sys.modules:
@@ -104,73 +104,18 @@ class BaseMenu(Cmd, object):
         self._setup()
         self._init_submenus()
         self._old_completer = readline.get_completer()
-
         readline.set_completion_display_matches_hook(self._completer_display)
 
-    '''
-    def cmdloop(self, intro=None):
-        """Repeatedly issue a prompt, accept input, parse an initial prefix
-        off the received input, and dispatch to action methods, passing them
-        the remainder of the line as argument.
-
-        """
-
-        self.preloop()
-        if self.use_rawinput and self.completekey:
-            try:
-                import readline
-                self.old_completer = readline.get_completer()
-                readline.set_completer(self.complete)
-                readline.parse_and_bind(self.completekey+": complete")
-                print red('ran readline')
-            except ImportError:
-                pass
-        try:
-            if intro is not None:
-                self.intro = intro
-            if self.intro:
-                self.stdout.write(str(self.intro)+"\n")
-                print red('wrote intro')
-            stop = None
-            while not stop:
-                if self.cmdqueue:
-                    line = self.cmdqueue.pop(0)
-                    print red('got line from cmdqueue:{0}'.format(line))
-                else:
-                    if self.use_rawinput:
-                        try:
-                            line = raw_input(self.prompt)
-                        except EOFError:
-                            line = 'EOF'
-                        print red('got line from raw:{0}'.format(line))
-                    else:
-                        self.stdout.write(self.prompt)
-                        self.stdout.flush()
-                        line = self.stdin.readline()
-                        print red('got line from stdin:{0}'.format(line))
-                        if not len(line):
-                            line = 'EOF'
-                        else:
-                            line = line.rstrip('\r\n')
-                print red('sending line down pipe...')
-                line = self.precmd(line)
-                stop = self.onecmd(line)
-                stop = self.postcmd(stop, line)
-            self.postloop()
-        finally:
-            if self.use_rawinput and self.completekey:
-                try:
-                    import readline
-                    readline.set_completer(self.old_completer)
-                except ImportError:
-                    pass
-    '''
 
     def _setup(self):
         """
         Implement this method to run custom checks and setup in __init__().
         """
         return
+
+
+    def __repr__(self):
+        return "{0}:{1}".format(self.__class__.__name__, self.name)
 
 
     def _keyboard_interupt_handler(self, signal, frame):
@@ -193,7 +138,7 @@ class BaseMenu(Cmd, object):
             pt.align = 'l'
             height, width = self._get_terminal_size()
             pt.max_width = width - 5
-            menus = "\n"
+            menus = ""
             cmds = ""
             total = []
             for match in matches:
@@ -203,44 +148,37 @@ class BaseMenu(Cmd, object):
                         menus += " {0} ".format(blue(match, bold=True))
                     else:
                         cmds += " {0} ".format(yellow(match), bold=True)
-            pt.add_row([menus])
-            pt.add_row([cmds])
+            if menus:
+                pt.add_row(["\n{0}".format(menus)])
+            if cmds:
+                if not menus:
+                    cmds = "\n{0}".format(cmds)
+                pt.add_row([cmds])
             line = readline.get_line_buffer()
-            if False:
-                print yellow("\nsubstitution:{0}\nmatches:{1}\nlongest_match_length:{2}\n"
-                             "len total:{3}\nline:{4},\nsubtype:{5}\ntotal:{6}\nsubstitution:{7}\n"
-                             .format(substitution, matches, longest_match_length, len(total),
-                                 line, type(substitution), total, substitution))
+
+            self.dprint("Completer_display():\nsubstitution:{0}\nmatches:{1}"
+                        "\nlongest_match_length:{2}\nlen total:{3}\nline:{4},\nsubtype:{5}\n"
+                        "total:{6}\nsubstitution:{7}\n"
+                        .format(substitution, matches, longest_match_length, len(total), line,
+                                type(substitution), total, substitution))
+            if self.debug:
+                self.do_cli_env(None)
+
             self.stdout.seek(0)
-
             self.stdout.write("")
-
-            #self.stdin.read
             self.stdout.flush()
-
             readline.redisplay()
-
-            #readline.redisplay()
             self.oprint("{0}".format(pt))
 
             if len(matches) == 1:
                 cli_text = "{0}{1}".format(self.prompt, matches[0])
             else:
                 cli_text = "{0}{1}".format(self.prompt, substitution)
-            #print yellow('\nCli text:"{0}"\n'.format(cli_text))
-            #readline.insert_text(cli_text)
 
             self.stdout.write(cli_text)
             self.stdout.flush()
-            #readline.insert_text()
             readline.redisplay()
-            #self.stdout.write(cli_text)
 
-
-
-
-
-            #self._old_completer(substitution or "", [], 0)
         except Exception as E:
             self.stderr.write(red("{0}\nError in completer_display:\nerror:{1}"
                               .format(get_traceback(), E)))
@@ -282,12 +220,12 @@ class BaseMenu(Cmd, object):
 
     @property
     def submenu_names(self):
-        if self._submenu_names is None:
-            names = []
-            for menu in self._submenus:
-                names.append(menu.name)
-            self._submenu_names = names
-        return self._submenu_names
+        #if self._submenu_names is None:
+        names = []
+        for menu in self._submenus:
+            names.append(menu.name)
+        #self._submenu_names = names
+        return names
 
     @property
     def summary(self):
@@ -412,14 +350,12 @@ class BaseMenu(Cmd, object):
         if not menu in self._submenus:
             self._submenus.append(menu)
 
-
     def _init_submenus(self, menus=None, add_setup_menu=True):
         # Get the menus defined for this menu class
         menus = menus or self._submenus or []
-        if add_setup_menu:
+        if not isinstance(self, Setup_Menu) and add_setup_menu:
             if not Setup_Menu in menus:
                 menus.append(Setup_Menu)
-        self._add_sub_menu(Setup_Menu, 'CLI configuration utilities')
         # Get the dynamic submenus/plugins for this menu class
         menus.extend(self.env._get_plugins_for_parent(self))
         # Add each submenu to this menu instance
@@ -437,8 +373,6 @@ class BaseMenu(Cmd, object):
                 self.dprint('Error loading submenu "{0}", err:{1}\n'
                             .format(mname,
                                     str(ME)))
-
-
 
     def _sub_menu_handler(self, menu, line):
         '''
@@ -461,7 +395,7 @@ class BaseMenu(Cmd, object):
                 menu = self.env.get_menu_by_class(menuclass=menuclass)
                 if not menu:
                     menu = menuclass(self.env)
-                    self.env.menu_instances.append(menu)
+                    self.env.menu_cache.append(menu)
                 assert isinstance(menu, BaseMenu)
                 self.dprint('Running cmd:"{0}" , with menu:{1}'
                             .format(line, menu.name))
@@ -493,7 +427,7 @@ class BaseMenu(Cmd, object):
             menu = self.env.get_menu_by_class(menuclass=menuclass)
             if not menu:
                 menu = menuclass(self.env)
-                self.env.menu_instances.append(menu)
+                self.env.menu_cache.append(menu)
             assert isinstance(menu, BaseMenu)
             self.dprint('sub_menu_complete() getting menu items from '
                         '{0}.completeddefault()'.format(menu.name))
@@ -679,13 +613,20 @@ class BaseMenu(Cmd, object):
 
     def do_cli_env(self, args):
         """show current cli environment variables"""
-        buf = ("\tpath_from_home -->  {0} \n"
-               .format(",".join(x.name for x in self.path_from_home)))
+        buf = ('\nCURRENT MENU CLASS:"{0}"'
+               '\nPROMPT:"{1}"'
+               '\nPATH FROM HOME:"{2}"'
+               '\nSUB MENUS:"{3}"'
+               '\nCLI CONFIG JSON:\n'
+               .format(self,
+                       self.prompt,
+                       ",".join(x.name for x in self.path_from_home),
+                       ", ".join(str(x) for x in self.submenu_names)))
         if not self.env:
-            buf += "\tNo env found?"
+            buf += "No env found?"
         else:
             buf += json.dumps(self.env.simplecli_config.__dict__, sort_keys=True, indent=4)
-        self.oprint(buf)
+        self.oprint(yellow(buf))
 
     def do_home(self, args):
         """Return to the home menu of the cli"""
@@ -723,15 +664,21 @@ class BaseMenu(Cmd, object):
                             path_from_home=self.path_from_home)
 
     def _load_menu(self, menu, path_from_home=None):
+        self.dprint('load_menu():\n\tmenu:{0}\n\tpath from home:{1}'
+                    '\n\tself.path_from_home{2}'
+                    .format(menu, path_from_home, self.path_from_home))
         if path_from_home is None:
             path_from_home = self.path_from_home
         if isinstance(menu, BaseMenu):
+            self.dprint('load_menu: got menu INSTANCE: "{0}"'.format(menu.__class__.__name__))
             if self.__class__ == menu.__class__:
                     return
             menu.env = self.env
+
             menu.path_from_home = path_from_home
             menu._init_submenus()
         elif isclass(menu) and issubclass(menu, BaseMenu):
+            self.dprint('load_menu: got menu CLASS: "{0}"'.format(menu))
             existing_menu = self.env.get_menu_by_class(menu)
             if existing_menu:
                 if existing_menu.__class__ == self.__class__:
@@ -742,11 +689,13 @@ class BaseMenu(Cmd, object):
             else:
                 menu = menu(self.env,
                             path_from_home=path_from_home)
-                self.env.menu_instances.append(menu)
+                self.env.menu_cache.append(menu)
         else:
             raise TypeError('Menu must of type BaseMenu, menu:{0}, type:{1}'
                             .format(str(menu), type(menu)))
         self = menu
+        readline.set_completer(menu.complete)
+        readline.set_completion_display_matches_hook(menu._completer_display)
         self.cmdloop(intro=self.intro)
         self.oprint(self._color('BLUE') + "**** {0} MENU ****"
                     .format(str(self.name)) + "\n")
@@ -872,8 +821,8 @@ class BaseMenu(Cmd, object):
             print_exc()
             raise
         try:
-            if self.old_completer:
-                readline.set_completer(self.old_completer)
+            if self._old_completer:
+                readline.set_completer(self._old_completer)
         except:
             pass
         raise SystemExit

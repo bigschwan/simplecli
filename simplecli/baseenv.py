@@ -21,7 +21,7 @@ class BaseEnv():
                  name='simplecli'):
         self.name = name
         self._config_namespaces = Namespace()
-        self.menu_instances = []
+        self.menu_cache = []
         self.base_dir = base_dir or os.path.expanduser('~/.simplecli')
         if os.path.exists(self.base_dir):
             if not os.path.isdir(self.base_dir):
@@ -211,8 +211,8 @@ class BaseEnv():
         '''
         Returns a loaded menu instance matching the provided class.
         '''
-        list = list or self.menu_instances
-        for item in self.menu_instances:
+        list = list or self.menu_cache
+        for item in self.menu_cache:
             if item.__class__ == menuclass:
                 return item
         return None
@@ -245,7 +245,7 @@ class BaseEnv():
         return '\n'.join(diff)
 
     def get_menu_by_name(self, name, list=None):
-        list = list or self.menu_instances
+        list = list or self.menu_cache
         for menu in list:
             if menu.name == name:
                 return menu
