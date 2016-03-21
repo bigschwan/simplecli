@@ -132,43 +132,80 @@ class BaseMenu(Cmd, object):
     def _completer_display(self, substitution, matches, longest_match_length):
 
         try:
-            pt = PrettyTable(['OPTIONS'])
-            pt.header = False
-            pt.border = False
-            pt.align = 'l'
+
             height, width = self._get_terminal_size()
-            pt.max_width = width - 5
-            menus = ""
-            cmds = ""
+            columns = int((width - 12) / longest_match_length) or 1
+            column_width = longest_match_length
+            def create_table():
+                header = []
+                for x in xrange(0, columns):
+                    header.append(x)
+                pt = PrettyTable(header)
+                pt.header = False
+                pt.border = False
+                pt.align = 'l'
+                pt.max_width = column_width
+                return  pt
+
+            menu_pt = None
+            cmd_pt = None
+            menus = [""]*columns
+            cmds =  [""]*columns
+            cmd_count = 0
+            menu_count = 0
+
             total = []
             for match in matches:
                 if not substitution or str(match).startswith(substitution):
+                    if not match.strip():
+                        continue
                     total.append(match)
                     if match in self.submenu_names:
-                        menus += " {0} ".format(blue(match, bold=True))
+                        if menu_pt is None:
+                            menu_pt = create_table()
+                        if menu_count > columns:
+                            menu_pt.add_row(menus)
+                            menu_count = 0
+                            menus = [""]*columns
+                        menus[menu_count] = match
+                        menu_count += 1
                     else:
-                        cmds += " {0} ".format(yellow(match), bold=True)
-            if menus:
-                pt.add_row(["\n{0}".format(menus)])
-            if cmds:
-                if not menus:
-                    cmds = "\n{0}".format(cmds)
-                pt.add_row([cmds])
-            line = readline.get_line_buffer()
+                        if cmd_pt is None:
+                            cmd_pt = create_table()
 
-            self.dprint("Completer_display():\nsubstitution:{0}\nmatches:{1}"
-                        "\nlongest_match_length:{2}\nlen total:{3}\nline:{4},\nsubtype:{5}\n"
-                        "total:{6}\nsubstitution:{7}\n"
-                        .format(substitution, matches, longest_match_length, len(total), line,
-                                type(substitution), total, substitution))
+                        if cmd_count >= columns:
+                            cmd_pt.add_row(cmds)
+                            cmd_count = 0
+                            cmds = [""]*columns
+                        cmds[cmd_count] = match
+                        cmd_count +=1
+            if menu_count:
+                menu_pt.add_row(menus)
+            if cmd_count:
+                cmd_pt.add_row(cmds)
+
             if self.debug:
                 self.do_cli_env(None)
+                line = readline.get_line_buffer()
+                self.dprint("Completer_display():\t\nsubstitution:{0}\t\nmatches:{1}"
+                            "\t\nlongest_match_length:{2}\t\nlen total:{3}\t\nline:{4}"
+                            "\t\nsubtype:{5}\t\ntotal:{6}\t\nsubstitution:{7}\t\ncolumns:{8}\t\n"
+                            "column width:{9}\t\n"
+                            .format(substitution, matches, longest_match_length, len(total), line,
+                                    type(substitution), total, substitution, columns,
+                                    column_width))
 
             self.stdout.seek(0)
             self.stdout.write("")
             self.stdout.flush()
             readline.redisplay()
-            self.oprint("{0}".format(pt))
+            buf = ""
+            if menu_pt:
+                buf += "\n{0}".format(blue(menu_pt))
+            if cmd_pt:
+                buf += "\n{0}".format(yellow(cmd_pt))
+
+            self.oprint(buf)
 
             if len(matches) == 1:
                 cli_text = "{0}{1}".format(self.prompt, matches[0])
