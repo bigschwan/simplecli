@@ -103,27 +103,41 @@ class BaseEnv():
         If not found and 'create == True' then a new namespace obj will be
         created, added to self._config_namespaces and returned.
         '''
-        if not isinstance(name, basestring):
+
+        if isinstance(name, basestring):
+            name = [name]
+        if not isinstance(name, list):
             raise ValueError('Bad value passed for "name" to get_namespace, got:"{0}/{1}"'
                              .format(name, type(name)))
-        namespace = getattr(self._config_namespaces, name, None)
-        if not namespace and create:
-            namespace = self.add_namespace(name)
-        return namespace
+        context = self._config_namespaces
+        for n in name:
+            last = context
+            context = getattr(context, n, None)
+            if not context and create:
+                context = Namespace()
+                setattr(last, n, context)
+        return context
 
-    def get_config_from_namespace(self, config_name, namespace_name):
+    def get_config_for_namespace(self, item_name, namespace_path=None):
         '''
         Attempts to get a config object from the specified namespace
-        :param config_name: string, name of Config to fetch
-        :param namespace_name: string, name of namespace to fetch config from
+        :param item_name: string, name of Config to fetch
+        :param namespace_path: string, or list of strings representing the heirarchy/location
+                                of the namespace to fetch config from
         returns Config obj
         '''
-        assert isinstance(namespace_name, str), 'Expected String for ' \
-                                                'namespace name'
-        context = self.get_namespace(namespace_name)
-        if not context:
-            raise ValueError('Namespace does not exist:' +str(namespace_name))
-        return getattr(context, config_name, None)
+        if namespace_path is None:
+            namespace_path = ['main']
+        if not isinstance(namespace_path, list):
+            namespace_path = [namespace_path]
+        namespace_path.append(item_name)
+        context = self._config_namespaces
+        for ns in namespace_path:
+            context = getattr(context, ns, None)
+            if not context:
+                raise ValueError('Namespace:"{0}" does not exist within path:{1}'
+                                 .format(ns, ".".join(str(x) for x in namespace_path)))
+        return context
 
     def add_config_to_namespace(self,
                               namespace_name,
@@ -162,7 +176,7 @@ class BaseEnv():
         '''
         Loads plugin menus found either in the provided plugin directory
         or the current working dir. Will attempt to load files starting
-        with 'menu'. See plugin examples for more info.
+        with 'menu'. See plugin menu_examples for more info.
         '''
         self.plugin_menus = []
         plugin_dir = self.simplecli_config.plugin_dir or os.path.curdir
