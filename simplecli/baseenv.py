@@ -6,6 +6,8 @@ import sys
 import imp
 from namespace import Namespace
 from simplecli import get_dict_from_file
+from logging import Logger, DEBUG, StreamHandler, Formatter
+from cloud_utils.log_utils import magenta
 from config import Config
 from shutil import copyfile
 import json
@@ -20,6 +22,12 @@ class BaseEnv():
                  base_dir=None,
                  name='simplecli'):
         self.name = name
+        self.logger = Logger(name=name, level=DEBUG)
+        handler = StreamHandler(sys.stdout)
+        handler.setLevel(DEBUG)
+        handler.setFormatter(Formatter(
+            magenta('[%(asctime)s][%(funcName)s:%(lineno)d]%(message)s')))
+        self.logger.addHandler(handler)
         self._config_namespaces = Namespace()
         self.menu_cache = []
         self.base_dir = base_dir or os.path.expanduser('~/.simplecli')

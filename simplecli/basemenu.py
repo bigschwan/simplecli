@@ -14,7 +14,7 @@ import tty
 import re
 import readline
 from prettytable import PrettyTable
-from cloud_utils.log_utils import markup, get_traceback, red, blue, yellow, green, cyan
+from cloud_utils.log_utils import markup, get_traceback, red, blue, yellow, magenta, cyan
 import readline
 
 
@@ -69,7 +69,8 @@ class BaseMenu(Cmd, object):
                  path_delimeter=None,
                  stdin=None,
                  stdout=None,
-                 stderr=None):
+                 stderr=None,
+                 add_setup_menu=False):
         # Note super does not work as Cmd() is an 'old style' class which
         # does not inherit from object(). Instead call init directly.
         #self._submenu_names = None
@@ -96,6 +97,7 @@ class BaseMenu(Cmd, object):
         if not self.name:
             raise ValueError('Class must define "name", extend BaseEnv')
         assert isinstance(env, BaseEnv), "env variable must be of type BaseEnv"
+        self._add_setup_menu = add_setup_menu
         self.env = env
         self.prompt_method = prompt_method or env.simplecli_config.prompt_method
         self.path_delimeter = path_delimeter or env.simplecli_config.path_delimeter
@@ -184,7 +186,7 @@ class BaseMenu(Cmd, object):
             if cmd_count:
                 cmd_pt.add_row(cmds)
 
-            self.dprint("Completer_display():\t\nsubstitution:{0}\t\nmatches:{1}"
+            self.dprint("\nCompleter_display():\t\nsubstitution:{0}\t\nmatches:{1}"
                         "\t\nlongest_match_length:{2}\t\nlen total:{3}\t\nline:{4}"
                         "\t\nsubtype:{5}\t\ntotal:{6}\t\nsubstitution:{7}\t\ncolumns:{8}\t\n"
                         "column width:{9}\t\n"
@@ -386,12 +388,14 @@ class BaseMenu(Cmd, object):
         if not menu in self._submenus:
             self._submenus.append(menu)
 
-    def _init_submenus(self, menus=None, add_setup_menu=True):
+    def _init_submenus(self, menus=None, add_setup_menu=None):
         # Get the menus defined for this menu class
         menus = menus or self._submenus or []
-        if not isinstance(self, Setup_Menu) and add_setup_menu:
-            if not Setup_Menu in menus:
-                menus.append(Setup_Menu)
+        if add_setup_menu is None:
+            add_setup_menu = self._add_setup_menu
+        if not isinstance(self, SetupMenu) and add_setup_menu:
+            if not SetupMenu in menus:
+                menus.append(SetupMenu)
         # Get the dynamic submenus/plugins for this menu class
         menus.extend(self.env._get_plugins_for_parent(self))
         # Add each submenu to this menu instance
@@ -487,7 +491,7 @@ class BaseMenu(Cmd, object):
         If a command has not been entered, then complete against command list.
         Otherwise try to call complete_<command> to get list of completions.
         """
-        self.dprint('Complete()1: menu:"{0}", text:"{1}", state:"{2}"'
+        self.dprint('Complete(): menu:"{0}", text:"{1}", state:"{2}"'
                     .format(self.name, text, state))
         if state == 0:
             import readline
@@ -496,23 +500,23 @@ class BaseMenu(Cmd, object):
             stripped = len(origline) - len(line)
             begidx = readline.get_begidx() - stripped
             endidx = readline.get_endidx() - stripped
-            self.dprint('Complete()2: text:{0}, origline:{1}'.format(text, line))
+            self.dprint('Complete(): text:{0}, origline:{1}'.format(text, line))
             if begidx>=0:
                 cmd, args, foo = self.parseline(line)
                 if not cmd:
-                    self.dprint('Complete()3: no cmd after parseline(), '
+                    self.dprint('Complete(): no cmd after parseline(), '
                                 'sending to default()')
                     compfunc = self.completedefault
                 else:
                     try:
                         compfunc = getattr(self, 'complete_' + cmd)
-                        self.dprint('Complete()4: got method complete_' + str(cmd))
+                        self.dprint('Complete(): got method complete_' + str(cmd))
                     except AttributeError:
-                        self.dprint('Complete()5: no complete_ method '
+                        self.dprint('Complete(): no complete_ method '
                                     'found, sending to default()')
                         compfunc = self.completedefault
             else:
-                self.dprint('Complete()2: non-zero state sending to '
+                self.dprint('Complete(): non-zero state sending to '
                             'completenames(), state:{0}'.format(state))
                 compfunc = self.completenames
             try:
@@ -631,12 +635,17 @@ class BaseMenu(Cmd, object):
         self.stderr.write(str(buf).rstrip("\n") + "\n")
         self.stderr.flush()
 
-    def dprint(self, buf):
+    def dprint(self, buf, color=None):
+
         if self.debug:
-            buf = self.name + ": " + str(buf)
-            buf = self._color(buf=str(buf), color='YELLOW')
-            self.stderr.write(str(buf).rstrip("\n") + "\n")
-            self.stderr.flush()
+            buf = "({0}):{1}\n".format(self.name, str(buf).rstrip("\n"))
+            if color and callable(color):
+                buf = color(buf)
+            if hasattr(self.env, 'logger'):
+                self.env.logger.debug(buf)
+            else:
+                self.stderr.write(buf)
+                self.stderr.flush()
 
     def do_output_test(self, args):
         """
@@ -651,6 +660,9 @@ class BaseMenu(Cmd, object):
         self.oprint('This is printed to stdout:' + str(args.pop(0)))
         if args:
             self.eprint('This is printed to stderr:' + str(args.pop(0)))
+        if hasattr(self.env, 'logger'):
+            self.env.logger.debug("environment logger debug level")
+            self.env.logger.debug("environment logger critical level")
 
     def do_cli_env(self, args):
         """show current cli environment variables"""
@@ -875,49 +887,28 @@ class BaseMenu(Cmd, object):
             pass
         raise SystemExit
 
-class Setup_Menu(BaseMenu):
-    name = 'setup_menu'
-    _summary = 'SimpleCLI Setup Menu'
-    _description = 'SimpleCLI Setup Menu'
-    _intro = 'SimpleCLI Setup Menu'
+
+##################################################################################################
+#                                    Simple CLI Setup Menus
+##################################################################################################
+
+class SetupConfigMenu(BaseMenu):
+    name = 'config'
+    _summary = 'SimpleCLI Setup Config Menu'
+    _description = 'SimpleCLI Setup Config Menu'
+    _intro = 'SimpleCLI Setup Config Menu'
+    _submenus = []
+
+    def _setup(self):
+        self._parent_menu = None
 
     @property
-    def config(self):
-        return self.env.simplecli_config
+    def parent(self):
+        if not getattr(self, '_parent_menu', None):
+            self._parent_menu = self.env.get_cached_menu_by_class(SetupMenu)
+        return self._parent_menu
 
-    def do_show(self, text):
-        """
-        Show configuration info
-        """
-        if text:
-            text = text.strip()
-            text = re.sub("^show\s*", '', text)
-            if text:
-                words = text.split()
-                nextword = words[0]
-                showmethod = getattr(self, 'show_' + str(nextword), None)
-                if showmethod:
-                   return showmethod(words[1:])
-        return self.help_show()
-
-    def help_show(self, *args):
-        match = 'show_'
-        showlist = [a[5:] + " " for a in self.get_names() if a.startswith(match)]
-        self.oprint('Available show commands:\n{0}'.format("\n\t".join(showlist)))
-
-    def complete_show(self, text, *ignore):
-        text = re.sub("^show\s*", '', text)
-        complete_method = getattr(self, 'show_' + text, None)
-        if complete_method:
-            return complete_method(text, ignore)
-        match = 'show_' + str(text)
-        return [a[5:] + " " for a in self.get_names() if a.startswith(match)]
-
-    def show_stuff(self, args):
-        print 'you got stuff'
-
-
-    def show_config(self, configblock):
+    def do_show(self, configblock):
         """
         Show the current running configuration
         """
@@ -927,20 +918,36 @@ class Setup_Menu(BaseMenu):
             block = '"{0}" configuration block not found'.format(configblock)
         self.oprint(block)
 
-
-    def show_diff(self, args):
+    def do_diff(self, args):
         """
         Show the diff between running and saved configuration
         """
         self.oprint(self.env.get_config_diff())
 
-    def do_save_config(self, args):
+    def do_save(self, args):
         """
         Saves the running configuration to 'config_file_path'
         """
         return self.env.save_config()
 
-    def do_set_debug(self, enable):
+
+class SetupSetMenu(BaseMenu):
+    name = 'set'
+    _summary = 'SimpleCLI Setup Set Menu'
+    _description = 'SimpleCLI Setup Set Menu'
+    _intro = 'SimpleCLI Setup Set Menu'
+    _submenus = []
+
+    def _setup(self):
+        self._parent_menu = None
+
+    @property
+    def parent(self):
+        if not getattr(self, '_parent_menu', None):
+            self._parent_menu = self.env.get_cached_menu_by_class(SetupMenu)
+        return self._parent_menu
+
+    def do_debug(self, enable):
         """
         Enables/disables the global debug env var.
         Usage set_debug [on/off]
@@ -953,8 +960,7 @@ class Setup_Menu(BaseMenu):
         else:
             self.env.simplecli_config.debug = False
 
-
-    def do_set_page_break(self, enable):
+    def do_pagebreak(self, enable):
         """
         Enables/disables the global page break env var.
         Usage set_page_break [on/off]
@@ -967,4 +973,10 @@ class Setup_Menu(BaseMenu):
         else:
             self.env.simplecli_config.page_break = False
 
+class SetupMenu(BaseMenu):
+    name = 'setup_menu'
+    _summary = 'SimpleCLI Setup Menu'
+    _description = 'SimpleCLI Setup Menu'
+    _intro = 'SimpleCLI Setup Menu'
+    _submenus = [SetupConfigMenu, SetupSetMenu]
 
