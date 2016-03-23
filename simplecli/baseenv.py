@@ -6,7 +6,7 @@ import sys
 import imp
 from namespace import Namespace
 from simplecli import get_dict_from_file
-from logging import Logger, DEBUG, StreamHandler, Formatter
+from logging import Logger, DEBUG, INFO, StreamHandler, Formatter
 from cloud_utils.log_utils import magenta
 from config import Config
 from shutil import copyfile
@@ -22,14 +22,15 @@ class BaseEnv():
                  base_dir=None,
                  name='simplecli'):
         self.name = name
-        self.logger = Logger(name=name, level=DEBUG)
+        self.logger = Logger(name=name, level=INFO)
         handler = StreamHandler(sys.stdout)
         handler.setLevel(DEBUG)
         handler.setFormatter(Formatter(
-            magenta('[%(asctime)s][%(funcName)s:%(lineno)d]%(message)s')))
+            magenta('[%(asctime)s]%(message)s')))
         self.logger.addHandler(handler)
         self._config_namespaces = Namespace()
         self.menu_cache = []
+        self.completer_context = None
         self.base_dir = base_dir or os.path.expanduser('~/.simplecli')
         if os.path.exists(self.base_dir):
             if not os.path.isdir(self.base_dir):
@@ -44,7 +45,6 @@ class BaseEnv():
         self._setup_stdio()
         self._load_plugin_menus()
 
-
     def _setup_stdio(self):
         def _get_stdio(name):
             if hasattr(sys, name):
@@ -52,18 +52,15 @@ class BaseEnv():
             else:
                 return open(name, 'wa')
         if self.simplecli_config.default_input:
-            self.default_input = _get_stdio(
-                self.simplecli_config.default_input)
+            self.default_input = _get_stdio(self.simplecli_config.default_input)
         else:
             self.default_input = sys.stdin
         if self.simplecli_config.default_output:
-            self.default_output = _get_stdio(
-                self.simplecli_config.default_output)
+            self.default_output = _get_stdio(self.simplecli_config.default_output)
         else:
             self.default_output = sys.stdout
         if self.simplecli_config.default_error:
-            self.default_error = _get_stdio(
-                self.simplecli_config.default_error)
+            self.default_error = _get_stdio(self.simplecli_config.default_error)
         else:
             self.default_error = sys.stderr
 
@@ -186,7 +183,9 @@ class BaseEnv():
         or the current working dir. Will attempt to load files starting
         with 'menu'. See plugin menu_examples for more info.
         '''
+
         self.plugin_menus = []
+        return
         plugin_dir = self.simplecli_config.plugin_dir or os.path.curdir
         for file in os.listdir(plugin_dir):
             if (os.path.isfile(file) and file.startswith('menu')
