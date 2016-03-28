@@ -1,20 +1,25 @@
 import json
 import os
-import sys
-from cmd import Cmd
-from logging import DEBUG, INFO
-from traceback import print_exc
-from simplecli.baseenv import BaseEnv
+import re
+import readline
 import signal
+import sys
+import termios
 import time
+import tty
+
+from cmd import Cmd
 from inspect import isclass
 from inspect import stack as inspect_stack
-import termios
-import tty
-import re
+from logging import DEBUG, INFO
 from prettytable import PrettyTable
-from cloud_utils.log_utils import markup, get_traceback, red, blue, yellow, magenta, cyan
-import readline
+from subprocess import check_output, CalledProcessError
+from traceback import print_exc
+
+from cloud_utils.log_utils import markup, red, blue, yellow, magenta, cyan
+from cloud_utils.log_utils import get_traceback, get_terminal_size
+from simplecli.baseenv import BaseEnv
+
 
 
 try:
@@ -185,12 +190,16 @@ class BaseMenu(Cmd, object):
 
             menu_pt = None
             cmd_pt = None
+            base_pt = None
             menus = [""]*columns
             cmds =  [""]*columns
+            basecmds = [""]*columns
             cmd_count = 0
             menu_count = 0
+            basecmd_count = 0
 
             total = []
+            base_dir = dir(BaseMenu)
             for match in matches:
                 if True: #not substitution or str(match).startswith(substitution):
                     if not match.strip():
@@ -205,6 +214,16 @@ class BaseMenu(Cmd, object):
                             menus = [""]*columns
                         menus[menu_count] = match
                         menu_count += 1
+                    elif 'do_{0}'.format(match) in base_dir:
+                        if base_pt is None:
+                            base_pt = create_table()
+
+                        if basecmd_count >= columns:
+                            base_pt.add_row(basecmds)
+                            basecmd_count = 0
+                            basecmds = [""]*columns
+                        basecmds[basecmd_count] = match
+                        basecmd_count +=1
                     else:
                         if cmd_pt is None:
                             cmd_pt = create_table()
@@ -219,6 +238,8 @@ class BaseMenu(Cmd, object):
                 menu_pt.add_row(menus)
             if cmd_count:
                 cmd_pt.add_row(cmds)
+            if basecmd_count:
+                base_pt.add_row(basecmds)
 
             cli_text = ""
             if substitution == completer.name:
@@ -248,11 +269,15 @@ class BaseMenu(Cmd, object):
             self.stdout.write("")
             self.stdout.flush()
             readline.redisplay()
-            buf = ""
-            if menu_pt:
-                buf += "\n{0}".format(blue(menu_pt))
+
+            line_sep = "---------------------------------"
+            buf = "\n"
             if cmd_pt:
-                buf += "\n{0}".format(yellow(cmd_pt))
+                buf += yellow("\n{0}".format(cmd_pt), bold=True)
+            if menu_pt:
+                buf += blue("\n{0}\n{1}".format(line_sep, menu_pt), bold=True)
+            if base_pt:
+                buf += "\n{0}".format(cyan("{0}\n{1}".format(line_sep, base_pt)))
             self.oprint(buf)
             self.stdout.write(cli_text)
             self.stdout.flush()
@@ -268,11 +293,12 @@ class BaseMenu(Cmd, object):
 
 
 
-    def do_python_cmd(self, cmd):
+    def do_eval(self, cmd):
         '''
         Executes python eval(cmd) for simple python debugging
         '''
-        self.oprint(eval(cmd), allow_break=False)
+        result = eval(cmd)
+        self.oprint(str(result), allow_break=False  )
 
     @property
     def debug(self):
@@ -347,6 +373,10 @@ class BaseMenu(Cmd, object):
         Attempts to get terminal size. Currently only Linux.
         returns (height, width)
         '''
+        try:
+            return get_terminal_size()
+        except:
+            pass
         try:
             # todo Add Windows support
             import fcntl
@@ -442,8 +472,6 @@ class BaseMenu(Cmd, object):
         if not isinstance(self, SetupMenu) and add_setup_menu:
             if not SetupMenu in menus:
                 menus.append(SetupMenu)
-        # Get the dynamic submenus/plugins for this menu class
-        menus.extend(self.env._get_plugins_for_parent(self))
         # Add each submenu to this menu instance
         for menu in menus:
             try:
@@ -738,17 +766,20 @@ class BaseMenu(Cmd, object):
             self.logger.critical("environment logger critical level")
         self.dprint("Printed with dprint()")
 
-    def do_cli_env(self, args):
+    def do_environment(self, args):
         """show current cli environment variables"""
+        height, width = get_terminal_size()
         buf = ('\nCURRENT MENU CLASS:"{0}"'
                '\nPROMPT:"{1}"'
                '\nPATH FROM HOME:"{2}"'
                '\nSUB MENUS:"{3}"'
+               '\nTERM HEIGHT:{4}, WIDTH:{5}'
                '\nCLI CONFIG JSON:\n'
                .format(self,
                        self.prompt,
                        ",".join(x.name for x in self.path_from_home),
-                       ", ".join(str(x) for x in self.submenu_names)))
+                       ", ".join(str(x) for x in self.submenu_names),
+                       height, width))
         if not self.env:
             buf += "No env found?"
         else:
@@ -906,16 +937,37 @@ class BaseMenu(Cmd, object):
             ret = (None, None, line)
             #return None, None, line
         else:
-            if '?' in line:
+            # If the line starts with "!" execute as a system cmd
+            if line.startswith('!'):
+                line = 'sh {0}'.format(line.lstrip("!"))
+            # If the line starts with a "?" execute as a help cmd
+            elif '?' in line:
                 if line[0] == '?':
                     if len(line) == 1:
                         return 'menu_summary', '', line
                 elif len(line.split()) == 1:
                     line = 'help ' + str(line).replace('?','')
             ret = Cmd.parseline(self, line)
-        self.dprint('{0}.parseline(line="{1}"), returning:"{2}"'.format(self, line, ret))
         return ret
 
+    def do_sh(self, args):
+        """
+        Execute a system 'sh' command. Use "!cmd" as shortcut.
+        """
+        self.logger.debug('System Command:"{0}"'.format(args))
+        try:
+            if not args:
+                raise ValueError('No system command provided: Example: "! ls -la"')
+            args = args.split()
+            out = check_output(args)
+        except CalledProcessError as CPE:
+            out = 'Command Failed: "{0}", err:"{1}"'.format(args, CPE)
+            self.eprint(out)
+        except Exception as COE:
+            out = '{0}\nCommand Failed: "{1}", err:"{2}"'.format(get_traceback(), args, COE)
+            self.eprint(out)
+        else:
+            self.oprint(out)
 
     def get_submenu(self, submenu):
         menu = None
