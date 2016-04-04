@@ -147,15 +147,21 @@ class BaseMenu(Cmd, object):
             self._last_keyboard_interupt = current_time
             raise EOFError
 
+
     def do_debug(self, enable):
         """
         Enables/disables the global debug env var.
         Usage set_debug [on/off]
         """
         enable = str(enable).lower().strip()
-        if enable != 'on' and enable != 'off':
+        if not enable:
+            self.eprint('Allowed values: "on", "true", "off", "false"')
+            self.oprint('DEBUG is currently:"{0}"'
+                        .format(self.env.simplecli_config.debug))
+            return
+        if enable not in ['on', 'off', 'true', 'false']:
             self.eprint('"{0}", Invalid arg. Use "on/off"'.format(enable))
-        if enable == 'on':
+        if enable in ['on', 'true']:
             self.env.simplecli_config.debug = True
             logger = getattr(self.env, 'logger', None)
             if logger:
@@ -165,6 +171,7 @@ class BaseMenu(Cmd, object):
             logger = getattr(self.env, 'logger', None)
             if logger:
                 logger.setLevel(INFO)
+
 
     def _completer_display(self, substitution, matches, longest_match_length):
 
@@ -1101,8 +1108,13 @@ class SetupSetMenu(BaseMenu):
         Usage set_debug [on/off]
         """
         enable = str(enable).lower().strip()
+        if not enable:
+            self.eprint('Allowed values: "on", "off"\nDEBUG is currently:"{0}"'
+                        .format(self.env.simplecli_config.debug))
+            return
+
         if enable != 'on' and enable != 'off':
-            self.eprint('"{0}", Invalid arg. Use "on/off"'.format(enable))
+            self.eprint('Invalid arg:"{0}". Allowed values: "on", "off"'.format(enable))
         if enable == 'on':
             self.env.simplecli_config.debug = True
             logger = getattr(self.env, 'logger', None)
